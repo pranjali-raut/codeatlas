@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "884679995836",
+    "project_id": "code-atlas-95b6a",
+    "storage_bucket": "code-atlas-95b6a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:884679995836:android:b56b9779d751316063fbb9",
+        "android_client_info": {
+          "package_name": "com.example.codeatlas"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCr1HrWdQqOUDo8pEQFZLtmn1dVv6Rda0g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
