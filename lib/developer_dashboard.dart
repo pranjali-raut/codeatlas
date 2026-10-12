@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'developer_theme.dart';
 import 'developer_content.dart';
+import 'loginpage.dart';
 
 class DeveloperDashboard extends StatefulWidget {
   const DeveloperDashboard({super.key});
@@ -20,7 +21,7 @@ class _DeveloperDashboardState extends State<DeveloperDashboard> {
   void _signOut() {
   Navigator.of(context).pushAndRemoveUntil(
     MaterialPageRoute(
-      builder: (context) => const LoginScreen(),
+      builder: (context) => const LoginPage(),
     ),
     (route) => false,
   );
