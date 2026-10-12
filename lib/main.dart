@@ -1,9 +1,18 @@
 
+import 'package:codeatlas/authwrapper.dart';
 import 'package:flutter/material.dart';
-import 'developer_dashboard.dart';
-import 'developer_theme.dart';
+import 'package:firebase_core/firebase_core.dart';
 
-void main() {
+import 'firebase_options.dart';
+
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
   runApp(const CodeAtlasApp());
 }
 
@@ -13,10 +22,16 @@ class CodeAtlasApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      title: 'CodeAtlas',
       debugShowCheckedModeBanner: false,
-      title: 'CodeAtlas Developer',
-      theme: developerTheme(),
-      home: const DeveloperDashboard(),
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFFB8C0FF),
+          brightness: Brightness.light,
+        ),
+      ),
+      home: const AuthWrapper(),
     );
   }
 }

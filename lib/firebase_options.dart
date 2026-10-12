@@ -21,13 +21,25 @@ class DefaultFirebaseOptions {
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
-        return android;
+        throw UnsupportedError(
+          'DefaultFirebaseOptions have not been configured for android - '
+          'you can reconfigure this by running the FlutterFire CLI again.',
+        );
       case TargetPlatform.iOS:
-        return ios;
+        throw UnsupportedError(
+          'DefaultFirebaseOptions have not been configured for ios - '
+          'you can reconfigure this by running the FlutterFire CLI again.',
+        );
       case TargetPlatform.macOS:
-        return macos;
+        throw UnsupportedError(
+          'DefaultFirebaseOptions have not been configured for macos - '
+          'you can reconfigure this by running the FlutterFire CLI again.',
+        );
       case TargetPlatform.windows:
-        return windows;
+        throw UnsupportedError(
+          'DefaultFirebaseOptions have not been configured for windows - '
+          'you can reconfigure this by running the FlutterFire CLI again.',
+        );
       case TargetPlatform.linux:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for linux - '
@@ -48,41 +60,5 @@ class DefaultFirebaseOptions {
     authDomain: 'code-atlas-95b6a.firebaseapp.com',
     storageBucket: 'code-atlas-95b6a.firebasestorage.app',
     measurementId: 'G-LXJPR0W1DW',
-  );
-
-  static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyCr1HrWdQqOUDo8pEQFZLtmn1dVv6Rda0g',
-    appId: '1:884679995836:android:b56b9779d751316063fbb9',
-    messagingSenderId: '884679995836',
-    projectId: 'code-atlas-95b6a',
-    storageBucket: 'code-atlas-95b6a.firebasestorage.app',
-  );
-
-  static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyA5Py6B7mjCGucSondIELTU9qMNADeY-I0',
-    appId: '1:884679995836:ios:c9c18d10eb695ec363fbb9',
-    messagingSenderId: '884679995836',
-    projectId: 'code-atlas-95b6a',
-    storageBucket: 'code-atlas-95b6a.firebasestorage.app',
-    iosBundleId: 'com.example.codeatlas',
-  );
-
-  static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyA5Py6B7mjCGucSondIELTU9qMNADeY-I0',
-    appId: '1:884679995836:ios:c9c18d10eb695ec363fbb9',
-    messagingSenderId: '884679995836',
-    projectId: 'code-atlas-95b6a',
-    storageBucket: 'code-atlas-95b6a.firebasestorage.app',
-    iosBundleId: 'com.example.codeatlas',
-  );
-
-  static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyDUqBL-gm9ExEfwkJDbbhaqYVs9t038iao',
-    appId: '1:884679995836:web:a639fd94139b0eb663fbb9',
-    messagingSenderId: '884679995836',
-    projectId: 'code-atlas-95b6a',
-    authDomain: 'code-atlas-95b6a.firebaseapp.com',
-    storageBucket: 'code-atlas-95b6a.firebasestorage.app',
-    measurementId: 'G-WJMFDVRXG1',
   );
 }
