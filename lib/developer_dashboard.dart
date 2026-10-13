@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'developer_theme.dart';
 import 'developer_content.dart';
 import 'loginpage.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class DeveloperDashboard extends StatefulWidget {
   const DeveloperDashboard({super.key});
@@ -17,15 +18,7 @@ class _DeveloperDashboardState extends State<DeveloperDashboard> {
   bool tasksExpanded = true;
   bool gitExpanded = true;
 
-  @override
-  void _signOut() {
-  Navigator.of(context).pushAndRemoveUntil(
-    MaterialPageRoute(
-      builder: (context) => const LoginPage(),
-    ),
-    (route) => false,
-  );
-}
+ 
 
 
   void openPage(String page) {
@@ -103,9 +96,18 @@ class _DeveloperDashboardState extends State<DeveloperDashboard> {
       ],
     );
   }
+ 
+  Future <void> logout() async{
+      await FirebaseAuth.instance.signOut();
+  }
 
+  
   @override
   Widget build(BuildContext context) {
+
+  final user = FirebaseAuth.instance.currentUser;
+  final username = user?.email;
+
     return Scaffold(
       body: SafeArea(
         child: Row(
@@ -252,7 +254,7 @@ class _DeveloperDashboardState extends State<DeveloperDashboard> {
                                 ),
                               ),
                               Text(
-                                'Team workspace',
+                                'Sakshi',
                                 style: TextStyle(
                                   fontSize: 11,
                                   color: devText,
@@ -306,10 +308,22 @@ class _DeveloperDashboardState extends State<DeveloperDashboard> {
                           color: devMuted,
                         ),
                         const SizedBox(width: 18),
-                        const CircleAvatar(
-                          backgroundColor: devLilac,
-                          child: Icon(Icons.person, color: devText),
-                        ),
+                        Container(
+            width: 39,
+            height: 39,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color.fromRGBO(231, 198, 255, 1), Color.fromRGBO(187, 208, 255, 1)],
+              ),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: IconButton(
+                   icon: const Icon(Icons.logout),
+                   color: const Color(0xFF7653B6),
+                   tooltip: 'Sign Out',
+                   onPressed: logout
+              )
+          ),
                       ],
                     ),
                   ),

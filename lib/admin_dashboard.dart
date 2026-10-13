@@ -1,6 +1,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'developer_theme.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 const Color lavender = Color(0xFFC8B6FF);
 const Color palePink = Color(0xFFFFD6FF);
@@ -56,8 +58,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
     setState(() => selectedPage = index);
   }
 
+  Future <void> logout() async{
+      await FirebaseAuth.instance.signOut();
+  }
+
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) {    
     return Scaffold(
       body: LayoutBuilder(
         builder: (context, constraints) {
@@ -97,49 +104,49 @@ class _AdminDashboardState extends State<AdminDashboard> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(22, 24, 16, 30),
-              child: Row(
-                children: [
-                  Container(
-                    width: 43,
-                    height: 43,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [palePink, lavender, lightBlue],
-                      ),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: const Icon(
-                      Icons.auto_awesome_rounded,
-                      color: ink,
-                      size: 25,
+                    padding: const EdgeInsets.fromLTRB(22, 24, 16, 22),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              colors: [devPink, devLilac, devBlue],
+                            ),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Icon(
+                            Icons.code_rounded,
+                            color: devText,
+                            size: 25,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'CodeAtlas',
+                                style: TextStyle(
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.w800,
+                                  color: devText,
+                                ),
+                              ),
+                              Text(
+                                'Admin workspace',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: devMuted,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(width: 11),
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'OnboardAI',
-                        style: TextStyle(
-                          fontSize: 19,
-                          fontWeight: FontWeight.w800,
-                          color: ink,
-                        ),
-                      ),
-                      Text(
-                        'ADMIN WORKSPACE',
-                        style: TextStyle(
-                          fontSize: 9,
-                          letterSpacing: 1.5,
-                          color: muted,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
             const Padding(
               padding: EdgeInsets.only(left: 23, bottom: 12),
               child: Text(
@@ -208,42 +215,48 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 },
               ),
             ),
-            Container(
-              margin: const EdgeInsets.all(15),
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFFFEEFF), Color(0xFFEDEAFF)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.auto_awesome, color: Color(0xFF7752B4)),
-                  SizedBox(height: 9),
-                  Text(
-                    'AI-powered onboarding',
-                    style: TextStyle(
-                      color: ink,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12,
+           Container(
+                    margin: const EdgeInsets.all(14),
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [devPink, devLilac, devBlue],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Row(
+                      children: [
+                        CircleAvatar(
+                          backgroundColor: Colors.white,
+                          child: Icon(Icons.person, color: devText),
+                        ),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Admin',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: devText,
+                                ),
+                              ),
+                              Text(
+                                'Akanksha',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: devText,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  SizedBox(height: 5),
-                  Text(
-                    'Turn project knowledge into a guided learning experience.',
-                    style: TextStyle(
-                      color: muted,
-                      fontSize: 10,
-                      height: 1.5,
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ],
         ),
       ),
@@ -320,11 +333,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
             height: 39,
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [lightPurple, lightBlue],
+                colors: [Color.fromRGBO(231, 198, 255, 1), Color.fromRGBO(187, 208, 255, 1)],
               ),
               borderRadius: BorderRadius.circular(13),
             ),
-            child: const Icon(Icons.person_outline_rounded, color: ink),
+            child: IconButton(
+                   icon: const Icon(Icons.logout),
+                   color: const Color(0xFF7653B6),
+                   tooltip: 'Sign Out',
+                   onPressed: logout
+              )
           ),
         ],
       ),
@@ -376,7 +394,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'YOUR PROJECTS,\\nUNDERSTOOD.',
+                        'YOUR PROJECTS,\n UNDERSTOOD.',
                         style: TextStyle(
                           color: ink,
                           fontSize: 28,
@@ -386,7 +404,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                       ),
                       SizedBox(height: 12),
                       Text(
-                        'Welcome to OnboardAI. Transform complex codebases '
+                        'Welcome to CodeAtlas. Transform complex codebases '
                         'into clear, guided onboarding experiences.',
                         style: TextStyle(
                           color: Color(0xFF625A79),
