@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'team_leader_content.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'developer_theme.dart';
 
 const Color tlPink = Color(0xFFFFD6FF);
 const Color tlLilac = Color(0xFFE7C6FF);
@@ -24,6 +26,10 @@ class _TeamLeaderDashboardState extends State<TeamLeaderDashboard> {
 
   void navigateTo(String page) {
     setState(() => selectedPage = page);
+  }
+
+ Future <void> logout() async{
+      await FirebaseAuth.instance.signOut();
   }
 
   @override
@@ -78,10 +84,10 @@ class _TeamLeaderDashboardState extends State<TeamLeaderDashboard> {
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: const Icon(
-                  Icons.hub_rounded,
-                  color: Colors.white,
-                  size: 27,
-                ),
+                            Icons.code_rounded,
+                            color: devText,
+                            size: 25,
+                          ),
               ),
               const SizedBox(width: 11),
               const Expanded(
@@ -412,10 +418,21 @@ class _TeamLeaderDashboardState extends State<TeamLeaderDashboard> {
             ),
           ),
           const SizedBox(width: 13),
-          const CircleAvatar(
-            radius: 19,
-            backgroundColor: tlLilac,
-            child: Icon(Icons.person, color: tlText),
+          Container(
+            width: 39,
+            height: 39,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color.fromRGBO(231, 198, 255, 1), Color.fromRGBO(187, 208, 255, 1)],
+              ),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: IconButton(
+                   icon: const Icon(Icons.logout),
+                   color: const Color(0xFF7653B6),
+                   tooltip: 'Sign Out',
+                   onPressed: logout
+              )
           ),
         ],
       ),
