@@ -67,6 +67,8 @@ class _LoginPageState extends State<LoginPage> {
       password: _passwordController.text,
     );
 
+    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+
     final uid = credential.user!.uid;
 
     // Read the trusted role from Firestore.
@@ -303,8 +305,7 @@ class _LoginPageState extends State<LoginPage> {
                                   Expanded(child: Divider(color: Color(0xFF2B3650))),
                                   Padding(
                                     padding: EdgeInsets.symmetric(horizontal: 12),
-                                    child: Text(
-                                      'CODE KNOWLEDGE, CONNECTED',
+                                    child: Text("don't have an account,Register",
                                       style: TextStyle(
                                         color: Color(0xFF7382A4),
                                         fontSize: 9,
