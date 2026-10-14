@@ -1,5 +1,11 @@
 
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'dart:typed_data';
+import 'package:web/web.dart' as web;
+import 'dart:js_interop';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
@@ -87,7 +93,7 @@ class StorageService {
 
     final user = _auth.currentUser!;
 
-final doc = await FirebaseFirestore.instance
+    final doc = await FirebaseFirestore.instance
     .collection('users')
     .doc(user.uid)
     .get();
@@ -156,23 +162,107 @@ if (bytes.length > maxFileSizeBytes) {
         .snapshots();
   }
 
-  Future<void> downloadProjectFile(String storagePath) async {
-    // Supabase RLS must authorize access before a signed URL is issued.
-    final signedUrl = await _supabase.storage
+  
+
+
+Future<void> downloadProjectFile(
+  String storagePath, {
+  String? fileName,
+}) async {
+  final path = storagePath.trim();
+
+  if (path.isEmpty) {
+    throw Exception('The file storage path is empty.');
+  }
+
+  try {
+    // Download file bytes from Supabase
+    final Uint8List bytes = await _supabase.storage
         .from(bucket)
-        .createSignedUrl(storagePath, 60);
+        .download(path);
 
-    final uri = Uri.parse(signedUrl);
+    if (bytes.isEmpty) {
+      throw Exception('The downloaded file is empty.');
+    }
 
-    final opened = await launchUrl(
-      uri,
-      mode: LaunchMode.externalApplication,
+    // Create a browser-downloadable PDF/file
+    final blob = web.Blob(
+      [bytes.toJS].toJS,
+      web.BlobPropertyBag(
+        type: _contentType(fileName ?? path.split('/').last),
+      ),
     );
 
-    if (!opened) {
-      throw Exception('Could not open the download link.');
-    }
+    final url = web.URL.createObjectURL(blob);
+    final anchor = web.HTMLAnchorElement()
+      ..href = url
+      ..download = fileName ?? path.split('/').last;
+
+    anchor.click();
+    web.URL.revokeObjectURL(url);
+
+    debugPrint('File download started successfully.');
+  } on StorageException catch (e) {
+    debugPrint('Storage error: ${e.message}');
+    rethrow;
+  } catch (e) {
+    debugPrint('Download failed: $e');
+    rethrow;
   }
+}
+
+
+Future<void> testDirectStorageDownload(
+  String storagePath,
+) async {
+  final user = FirebaseAuth.instance.currentUser;
+
+  if (user == null) {
+    throw Exception('User not logged in.');
+  }
+
+  final token = await user.getIdToken(true);
+
+  if (token == null) {
+    throw Exception('Firebase token unavailable.');
+  }
+
+  const projectUrl =
+      'https://kyxuhicwvdhtgppmyesq.supabase.co';
+  const publishableKey =
+      'YOUR_SUPABASE_PUBLISHABLE_KEY';
+
+  final encodedPath = storagePath
+      .split('/')
+      .map(Uri.encodeComponent)
+      .join('/');
+
+  final uri = Uri.parse(
+    '$projectUrl/storage/v1/object/$bucket/$encodedPath',
+  );
+
+  final response = await http.get(
+    uri,
+    headers: {
+      'apikey': publishableKey,
+      'Authorization': 'Bearer $token',
+    },
+  );
+
+  debugPrint('Direct Storage HTTP status: ${response.statusCode}');
+  debugPrint('Response content type: '
+      '${response.headers['content-type']}');
+
+  if (response.statusCode == 200) {
+    debugPrint('Direct download succeeded.');
+    debugPrint('Downloaded bytes: ${response.bodyBytes.length}');
+  } else {
+    debugPrint('Direct download failed.');
+    debugPrint('Response: ${response.body}');
+  }
+}
+
+
 
   Future<void> deleteProjectFile(
     String documentId,

@@ -370,9 +370,13 @@ class _ProjectFilesPageState extends State<ProjectFilesPage> {
                               onSelected: (action) async {
                                 if (action == 'download') {
                                   try {
-                                    await _storage.downloadProjectFile(
-                                      storagePath,
+                                  
+                                    
+                                    await StorageService.instance.downloadProjectFile(
+                                    data['storagePath'] as String,
+                                    fileName: data['fileName'] as String?,
                                     );
+
                                   } catch (e) {
                                     _showMessage('Download failed: $e');
                                   }

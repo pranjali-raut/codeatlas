@@ -17,9 +17,20 @@ Future<void> main() async {
   await Supabase.initialize(
   url: 'https://kyxuhicwvdhtgppmyesq.supabase.co',
   publishableKey: 'sb_publishable_MTewaQkUrjAxKZmWjsKDfg_BOP34bnb',
+  
   accessToken: () async {
-    return FirebaseAuth.instance.currentUser?.getIdToken();
-  },
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) {
+    debugPrint('Supabase token callback: no Firebase user');
+    return null;
+  }
+
+  final token = await user.getIdToken();
+  debugPrint('Supabase token callback: Firebase token supplied');
+  return token;
+},
+
+  
 );
 
   runApp(const CodeAtlasApp());
