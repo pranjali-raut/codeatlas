@@ -1,10 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:codeatlas/register.dart';
 import 'package:flutter/material.dart';
 import 'firebase_options.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
-
-
+import 'register.dart';
 /// CodeAtlas login screen.
 ///
 /// Usage:
@@ -66,8 +66,6 @@ class _LoginPageState extends State<LoginPage> {
       email: _usernameController.text.trim(),
       password: _passwordController.text,
     );
-
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
 
     final uid = credential.user!.uid;
 
@@ -299,13 +297,16 @@ class _LoginPageState extends State<LoginPage> {
                               ),
                               const SizedBox(height: 8),
                               _buildLoginButton(),
-                              const SizedBox(height: 20),
+                                const SizedBox(height: 12),
+                                _buildRegisterButton(),
+                                const SizedBox(height: 20),
                               const Row(
                                 children: [
                                   Expanded(child: Divider(color: Color(0xFF2B3650))),
                                   Padding(
                                     padding: EdgeInsets.symmetric(horizontal: 12),
-                                    child: Text("don't have an account,Register",
+                                    child: Text(
+                                      'CODE KNOWLEDGE, CONNECTED',
                                       style: TextStyle(
                                         color: Color(0xFF7382A4),
                                         fontSize: 9,
@@ -545,6 +546,42 @@ class _LoginPageState extends State<LoginPage> {
       ),
     );
   }
+Widget _buildRegisterButton() {
+  return Center(
+    child: Wrap(
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        const Text(
+          "Don't have an account? ",
+          style: TextStyle(
+            color: Color(0xFF6D6883),
+            fontSize: 12.5,
+          ),
+        ),
+        TextButton(
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => const RegisterPage(),
+              ),
+            );
+          },
+          child: const Text(
+            'Register',
+            style: TextStyle(
+              color: Color(0xFF7562B8),
+              fontWeight: FontWeight.w800,
+              fontSize: 13,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 }
 
 class _RoleOption {
