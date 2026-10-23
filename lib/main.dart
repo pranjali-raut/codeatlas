@@ -2,8 +2,9 @@
 import 'package:codeatlas/authwrapper.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-
+import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 
 Future<void> main() async {
@@ -12,6 +13,25 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  await Supabase.initialize(
+  url: 'https://kyxuhicwvdhtgppmyesq.supabase.co',
+  publishableKey: 'sb_publishable_MTewaQkUrjAxKZmWjsKDfg_BOP34bnb',
+  
+  accessToken: () async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) {
+    debugPrint('Supabase token callback: no Firebase user');
+    return null;
+  }
+
+  final token = await user.getIdToken();
+  debugPrint('Supabase token callback: Firebase token supplied');
+  return token;
+},
+
+  
+);
 
   runApp(const CodeAtlasApp());
 }
