@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'team_leader_content.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'developer_theme.dart';
+import 'project_files_page.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 const Color tlPink = Color(0xFFFFD6FF);
 const Color tlLilac = Color(0xFFE7C6FF);
@@ -24,8 +26,106 @@ class _TeamLeaderDashboardState extends State<TeamLeaderDashboard> {
   String selectedPage = 'Progress';
   bool projectExpanded = true;
 
-  void navigateTo(String page) {
-    setState(() => selectedPage = page);
+ 
+void navigateTo(String page) {
+  if (page == 'Files') {
+    _openProjectFiles();
+    return;
+  }
+
+  setState(() => selectedPage = page);
+}
+
+
+Future<void> _openProjectFiles() async {
+  final user = FirebaseAuth.instance.currentUser;
+
+  if (user == null) {
+    return;
+  }
+
+  try {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('projects')
+        .where('teamLeaderId', isEqualTo: user.uid)
+        .get();
+
+    if (!mounted) return;
+
+    if (snapshot.docs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No projects are assigned to you yet.'),
+        ),
+      );
+      return;
+    }
+
+    final selectedProject =
+        await showDialog<QueryDocumentSnapshot<Map<String, dynamic>>>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Select a project'),
+          content: SizedBox(
+            width: 400,
+            child: ListView(
+              shrinkWrap: true,
+              children: snapshot.docs.map((projectDocument) {
+                final projectData = projectDocument.data();
+                final projectName =
+                    projectData['name'] as String? ?? 'Unnamed project';
+
+                return ListTile(
+                  leading: const Icon(Icons.folder_outlined),
+                  title: Text(projectName),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.pop(dialogContext, projectDocument);
+                  },
+                );
+              }).toList(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted || selectedProject == null) return;
+
+    final projectData = selectedProject.data();
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ProjectFilesPage(
+          projectId: selectedProject.id,
+          projectName:
+              projectData['name'] as String? ?? 'Project Files',
+        ),
+      ),
+    );
+  } catch (e) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Could not load projects: $e'),
+      ),
+    );
+  }
+}
+
+
+
+ Future <void> logout() async{
+      await FirebaseAuth.instance.signOut();
   }
 
  Future <void> logout() async{
