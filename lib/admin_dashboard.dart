@@ -540,12 +540,7 @@ Future<void> _loadProjects() async {
                 children: [
                   _statCard('Total projects', '${projects.length}',
                       Icons.folder_copy_outlined, palePink, width),
-                  _statCard('Team members', '0',
-                      Icons.groups_outlined, lightPurple, width),
-                  _statCard('Tasks completed', '0',
-                      Icons.task_alt_rounded, periwinkle, width),
-                  _statCard('Onboarding rate', '0%',
-                      Icons.insights_rounded, lightBlue, width),
+            
                 ],
               );
             },
@@ -863,10 +858,7 @@ Future<void> _loadProjects() async {
                     Wrap(
                       spacing: 8,
                       runSpacing: 5,
-                      children: [
-                        _tag('${project.files.length} files'),
-                        _tag('New project'),
-                      ],
+                      
                     ),
                     if (project.files.isNotEmpty) ...[
                       const SizedBox(height: 10),
@@ -907,21 +899,21 @@ Future<void> _loadProjects() async {
                   ],
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.folder_open_rounded),
-                tooltip: 'Open project files',
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => ProjectFilesPage(
-                        projectId: project.id,
-                        projectName: project.name,
-                      ),
-                    ),
-                    );
-                },
-              ),
+             IconButton(
+  tooltip: 'View project files',
+  icon: const Icon(Icons.folder_open_rounded),
+  onPressed: () {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ProjectFilesPage(
+          projectId: project.id,
+          projectName: project.name,
+        ),
+      ),
+    );
+  },
+),
             ],
           ),
         );
@@ -1281,124 +1273,7 @@ Future<void> pickFiles() async {
                                : null,
                      ),
 
-                      const SizedBox(height: 28),
-                      const Divider(color: Color(0xFFF0EDF5)),
-                      const SizedBox(height: 22),
-                      const _FormHeading(
-                        number: '02',
-                        title: 'Project documentation',
-                        subtitle:
-                            'Select a README, API documentation, or project files.',
-                      ),
-                      const SizedBox(height: 18),
-                      InkWell(
-                        onTap: _pickingFiles ? null : pickFiles,
-                        borderRadius: BorderRadius.circular(16),
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 30,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFAF8FF),
-                            border: Border.all(
-                              color: lavender,
-                              width: 1.4,
-                            ),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Column(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(14),
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFFECE4FF),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.cloud_upload_outlined,
-                                  size: 28,
-                                  color: Color(0xFF7653B6),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                _pickingFiles
-                                    ? 'Opening file picker...'
-                                    : 'Click to browse project files',
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  color: ink,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 7),
-                              const Text(
-                                'PDF, TXT, MD, DOCX, JSON and YAML',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: muted,
-                                ),
-                              ),
-                              const SizedBox(height: 5),
-                              const Text(
-                                'Selected files will be attached to this project.',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: muted,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      if (selectedFiles.isNotEmpty) ...[
-                        const SizedBox(height: 15),
-                        ...selectedFiles.map(
-                          (file) => Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF7F5FC),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.description_outlined,
-                                  color: Color(0xFF7653B6),
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    file,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: ink,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                IconButton(
-                                  tooltip: 'Remove file',
-                                  onPressed: () => setState(
-                                    () => selectedFiles.remove(file),
-                                  ),
-                                  icon: const Icon(
-                                    Icons.close_rounded,
-                                    size: 18,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
+                     
                       const SizedBox(height: 27),
                       Row(
                         children: [

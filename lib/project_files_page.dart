@@ -21,6 +21,7 @@ class ProjectFilesPage extends StatefulWidget {
 
 class _ProjectFilesPageState extends State<ProjectFilesPage> {
   final StorageService _storage = StorageService.instance;
+   bool _busy = false;
 
   bool _uploading = false;
   bool _deleting = false;
@@ -151,6 +152,39 @@ class _ProjectFilesPageState extends State<ProjectFilesPage> {
       backgroundColor: const Color(0xFFF8F7FC),
       appBar: AppBar(
         title: Text(widget.projectName),
+
+        actions: [
+  IconButton(
+    tooltip: 'Upload file',
+    icon: const Icon(Icons.upload_file),
+    onPressed: _busy
+        ? null
+        : () async {
+            try {
+              setState(() => _busy = true);
+
+              await _storage.uploadProjectFile(widget.projectId);
+
+
+            } catch (e) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Upload failed: $e'),
+                  ),
+                );
+              }
+            } finally {
+              if (mounted) {
+                setState(() => _busy = false);
+              }
+            }
+          },
+  ),
+],
+
+
+
         backgroundColor: Colors.white,
         foregroundColor: const Color(0xFF30234A),
         elevation: 0,
