@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'developer_theme.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'project_files_page.dart';
+import 'services/storage_services.dart';
 
 const Color lavender = Color(0xFFC8B6FF);
 const Color palePink = Color(0xFFFFD6FF);
@@ -20,12 +23,14 @@ class AdminDashboard extends StatefulWidget {
 }
 
 class Project {
+  final String id;
   final String name;
   final String description;
   final List<String> files;
   final DateTime createdAt;
 
   Project({
+    required this.id,
     required this.name,
     required this.description,
     required this.files,
@@ -54,6 +59,43 @@ class _AdminDashboardState extends State<AdminDashboard> {
     Icons.calendar_month_rounded,
   ];
 
+  
+
+
+Future<String> createProjectInFirestore({
+  required String name,
+  required String description,
+  required String repositoryUrl,
+  required String teamLeaderId,
+  required String developerId,
+}) async {
+  final user = FirebaseAuth.instance.currentUser;
+
+  if (user == null) {
+    throw Exception('Please sign in again.');
+  }
+
+  final doc = await FirebaseFirestore.instance
+      .collection('projects')
+      .add({
+    'createdAt': FieldValue.serverTimestamp(),
+    'createdBy': user.uid,
+    'description': description.trim(),
+    'developerIds': developerId.trim(),
+    'name': name.trim(),
+    'repositoryUrl': repositoryUrl.trim(),
+    'status': 'active',
+    'teamLeaderId': teamLeaderId.trim(),
+  });
+
+  return doc.id;
+}
+
+
+
+
+
+
   void navigate(int index) {
     setState(() => selectedPage = index);
   }
@@ -61,6 +103,46 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Future <void> logout() async{
       await FirebaseAuth.instance.signOut();
   }
+
+
+
+@override
+void initState() {
+  super.initState();
+  _loadProjects();
+}
+
+Future<void> _loadProjects() async {
+  try {
+    final snapshot =
+        await FirebaseFirestore.instance.collection('projects').get();
+
+    final loadedProjects = snapshot.docs.map((doc) {
+      final data = doc.data();
+      final createdAt = data['createdAt'];
+
+      return Project(
+        id: doc.id,
+        name: data['name'] as String? ?? 'Unnamed project',
+        description: data['description'] as String? ?? '',
+        files: const [],
+        createdAt: createdAt is Timestamp
+            ? createdAt.toDate()
+            : DateTime.now(),
+      );
+    }).toList();
+
+    if (!mounted) return;
+
+    setState(() {
+      projects
+        ..clear()
+        ..addAll(loadedProjects);
+    });
+  } catch (e) {
+    debugPrint('Could not load projects: $e');
+  }
+}
 
 
   @override
@@ -458,12 +540,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                 children: [
                   _statCard('Total projects', '${projects.length}',
                       Icons.folder_copy_outlined, palePink, width),
-                  _statCard('Team members', '0',
-                      Icons.groups_outlined, lightPurple, width),
-                  _statCard('Tasks completed', '0',
-                      Icons.task_alt_rounded, periwinkle, width),
-                  _statCard('Onboarding rate', '0%',
-                      Icons.insights_rounded, lightBlue, width),
+            
                 ],
               );
             },
@@ -578,24 +655,65 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
-  Widget _createProjectPage() {
-    return _CreateProjectForm(
-      onCreate: (name, description, files) {
+
+
+ Widget _createProjectPage() {
+  return _CreateProjectForm(
+    onCreate: (
+      name,
+      description,
+      repositoryUrl,
+      teamLeaderId,
+      developerId,
+    ) async {
+      try {
+        final projectId = await createProjectInFirestore(
+          name: name,
+          description: description,
+          repositoryUrl: repositoryUrl,
+          teamLeaderId: teamLeaderId,
+          developerId: developerId,
+        );
+
+        if (!mounted) return;
+
         setState(() {
           projects.insert(
             0,
             Project(
+              id: projectId,
               name: name,
               description: description,
-              files: files,
+              files: const [],
               createdAt: DateTime.now(),
             ),
           );
           selectedPage = 2;
         });
-      },
-    );
-  }
+
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ProjectFilesPage(
+              projectId: projectId,
+              projectName: name,
+            ),
+          ),
+        );
+      } catch (e) {
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not create project: $e'),
+          ),
+        );
+      }
+    },
+  );
+}
+
+
 
   Widget _projectsPage() {
     return SingleChildScrollView(
@@ -740,10 +858,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                     Wrap(
                       spacing: 8,
                       runSpacing: 5,
-                      children: [
-                        _tag('${project.files.length} files'),
-                        _tag('New project'),
-                      ],
+                      
                     ),
                     if (project.files.isNotEmpty) ...[
                       const SizedBox(height: 10),
@@ -784,8 +899,21 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   ],
                 ),
               ),
-              const Icon(Icons.arrow_forward_ios_rounded,
-                  color: muted, size: 15),
+             IconButton(
+  tooltip: 'View project files',
+  icon: const Icon(Icons.folder_open_rounded),
+  onPressed: () {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ProjectFilesPage(
+          projectId: project.id,
+          projectName: project.name,
+        ),
+      ),
+    );
+  },
+),
             ],
           ),
         );
@@ -978,11 +1106,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
 }
 
 class _CreateProjectForm extends StatefulWidget {
-  final void Function(
-    String name,
-    String description,
-    List<String> files,
-  ) onCreate;
+  final Future<void> Function(
+  String name,
+  String description,
+  String repositoryUrl,
+  String teamLeaderId,
+  String developerId,
+) onCreate;
 
   const _CreateProjectForm({required this.onCreate});
 
@@ -994,6 +1124,11 @@ class _CreateProjectFormState extends State<_CreateProjectForm> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
+  final _repositoryController = TextEditingController();
+  final _teamLeaderIdController = TextEditingController();
+  final _developerIdController = TextEditingController();
+  
+  bool _saving = false;  
   List<String> selectedFiles = [];
   bool _pickingFiles = false;
 
@@ -1002,6 +1137,9 @@ class _CreateProjectFormState extends State<_CreateProjectForm> {
     _nameController.dispose();
     _descriptionController.dispose();
     super.dispose();
+    _repositoryController.dispose();
+    _teamLeaderIdController.dispose();
+    _developerIdController.dispose();
   }
 
 
@@ -1100,124 +1238,42 @@ Future<void> pickFiles() async {
                                 ? 'Please add a project description'
                                 : null,
                       ),
-                      const SizedBox(height: 28),
-                      const Divider(color: Color(0xFFF0EDF5)),
-                      const SizedBox(height: 22),
-                      const _FormHeading(
-                        number: '02',
-                        title: 'Project documentation',
-                        subtitle:
-                            'Select a README, API documentation, or project files.',
-                      ),
-                      const SizedBox(height: 18),
-                      InkWell(
-                        onTap: _pickingFiles ? null : pickFiles,
-                        borderRadius: BorderRadius.circular(16),
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 30,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFAF8FF),
-                            border: Border.all(
-                              color: lavender,
-                              width: 1.4,
-                            ),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Column(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(14),
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFFECE4FF),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.cloud_upload_outlined,
-                                  size: 28,
-                                  color: Color(0xFF7653B6),
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                _pickingFiles
-                                    ? 'Opening file picker...'
-                                    : 'Click to browse project files',
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  color: ink,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 7),
-                              const Text(
-                                'PDF, TXT, MD, DOCX, JSON and YAML',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: muted,
-                                ),
-                              ),
-                              const SizedBox(height: 5),
-                              const Text(
-                                'Selected files will be attached to this project.',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: muted,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      if (selectedFiles.isNotEmpty) ...[
-                        const SizedBox(height: 15),
-                        ...selectedFiles.map(
-                          (file) => Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF7F5FC),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.description_outlined,
-                                  color: Color(0xFF7653B6),
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Text(
-                                    file,
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: ink,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                IconButton(
-                                  tooltip: 'Remove file',
-                                  onPressed: () => setState(
-                                    () => selectedFiles.remove(file),
-                                  ),
-                                  icon: const Icon(
-                                    Icons.close_rounded,
-                                    size: 18,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
+
+                     TextFormField(
+                       controller: _repositoryController,
+                       decoration: const InputDecoration(
+                         labelText: 'Repository URL',
+                         hintText: 'https://github.com/organization/repository',
+                       ),
+                     ),
+
+                     const SizedBox(height: 16),
+
+                     TextFormField(
+                       controller: _teamLeaderIdController,
+                       decoration: const InputDecoration(
+                         labelText: 'Team Leader Firebase UID',
+                       ),
+                       validator: (value) =>
+                           value == null || value.trim().isEmpty
+                               ? 'Enter the Team Leader UID'
+                               : null,
+                     ),
+
+                     const SizedBox(height: 16),
+
+                     TextFormField(
+                       controller: _developerIdController,
+                       decoration: const InputDecoration(
+                         labelText: 'Developer Firebase UID',
+                       ),
+                       validator: (value) =>
+                           value == null || value.trim().isEmpty
+                               ? 'Enter the Developer UID'
+                               : null,
+                     ),
+
+                     
                       const SizedBox(height: 27),
                       Row(
                         children: [
@@ -1243,17 +1299,29 @@ Future<void> pickFiles() async {
                           const SizedBox(width: 13),
                           Expanded(
                             child: FilledButton.icon(
-                              onPressed: () {
-                                if (_formKey.currentState!.validate()) {
-                                  widget.onCreate(
-                                    _nameController.text.trim(),
-                                    _descriptionController.text.trim(),
-                                    List<String>.from(selectedFiles),
-                                  );
-                                }
-                              },
+                              onPressed: _saving
+                                  ? null
+                                  : () async {
+                                      if (!_formKey.currentState!.validate()) return;
+
+                                      setState(() => _saving = true);
+
+                                      try {
+                                        await widget.onCreate(
+                                          _nameController.text.trim(),
+                                          _descriptionController.text.trim(),
+                                          _repositoryController.text.trim(),
+                                          _teamLeaderIdController.text.trim(),
+                                          _developerIdController.text.trim(),
+                                        );
+                                      } finally {
+                                        if (mounted) {
+                                          setState(() => _saving = false);
+                                        }
+                                      }
+                                    },
                               icon: const Icon(Icons.add_rounded),
-                              label: const Text('Create project'),
+                              label: Text(_saving ? 'Creating project...' : 'Create project'),
                               style: FilledButton.styleFrom(
                                 backgroundColor: const Color(0xFF654A99),
                                 foregroundColor: Colors.white,
