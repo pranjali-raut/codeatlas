@@ -128,6 +128,8 @@ Future<void> _openProjectFiles() async {
       await FirebaseAuth.instance.signOut();
   }
 
+
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
