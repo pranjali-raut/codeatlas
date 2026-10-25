@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'developer_theme.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'project_files_page.dart';
+import 'services/storage_services.dart';
 
 const Color lavender = Color(0xFFC8B6FF);
 const Color palePink = Color(0xFFFFD6FF);
@@ -20,12 +23,14 @@ class AdminDashboard extends StatefulWidget {
 }
 
 class Project {
+  final String id;
   final String name;
   final String description;
   final List<String> files;
   final DateTime createdAt;
 
   Project({
+    required this.id,
     required this.name,
     required this.description,
     required this.files,
@@ -54,6 +59,43 @@ class _AdminDashboardState extends State<AdminDashboard> {
     Icons.calendar_month_rounded,
   ];
 
+  
+
+
+Future<String> createProjectInFirestore({
+  required String name,
+  required String description,
+  required String repositoryUrl,
+  required String teamLeaderId,
+  required String developerId,
+}) async {
+  final user = FirebaseAuth.instance.currentUser;
+
+  if (user == null) {
+    throw Exception('Please sign in again.');
+  }
+
+  final doc = await FirebaseFirestore.instance
+      .collection('projects')
+      .add({
+    'createdAt': FieldValue.serverTimestamp(),
+    'createdBy': user.uid,
+    'description': description.trim(),
+    'developerIds': developerId.trim(),
+    'name': name.trim(),
+    'repositoryUrl': repositoryUrl.trim(),
+    'status': 'active',
+    'teamLeaderId': teamLeaderId.trim(),
+  });
+
+  return doc.id;
+}
+
+
+
+
+
+
   void navigate(int index) {
     setState(() => selectedPage = index);
   }
@@ -61,6 +103,46 @@ class _AdminDashboardState extends State<AdminDashboard> {
   Future <void> logout() async{
       await FirebaseAuth.instance.signOut();
   }
+
+
+
+@override
+void initState() {
+  super.initState();
+  _loadProjects();
+}
+
+Future<void> _loadProjects() async {
+  try {
+    final snapshot =
+        await FirebaseFirestore.instance.collection('projects').get();
+
+    final loadedProjects = snapshot.docs.map((doc) {
+      final data = doc.data();
+      final createdAt = data['createdAt'];
+
+      return Project(
+        id: doc.id,
+        name: data['name'] as String? ?? 'Unnamed project',
+        description: data['description'] as String? ?? '',
+        files: const [],
+        createdAt: createdAt is Timestamp
+            ? createdAt.toDate()
+            : DateTime.now(),
+      );
+    }).toList();
+
+    if (!mounted) return;
+
+    setState(() {
+      projects
+        ..clear()
+        ..addAll(loadedProjects);
+    });
+  } catch (e) {
+    debugPrint('Could not load projects: $e');
+  }
+}
 
 
   @override
@@ -578,24 +660,65 @@ class _AdminDashboardState extends State<AdminDashboard> {
     );
   }
 
-  Widget _createProjectPage() {
-    return _CreateProjectForm(
-      onCreate: (name, description, files) {
+
+
+ Widget _createProjectPage() {
+  return _CreateProjectForm(
+    onCreate: (
+      name,
+      description,
+      repositoryUrl,
+      teamLeaderId,
+      developerId,
+    ) async {
+      try {
+        final projectId = await createProjectInFirestore(
+          name: name,
+          description: description,
+          repositoryUrl: repositoryUrl,
+          teamLeaderId: teamLeaderId,
+          developerId: developerId,
+        );
+
+        if (!mounted) return;
+
         setState(() {
           projects.insert(
             0,
             Project(
+              id: projectId,
               name: name,
               description: description,
-              files: files,
+              files: const [],
               createdAt: DateTime.now(),
             ),
           );
           selectedPage = 2;
         });
-      },
-    );
-  }
+
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ProjectFilesPage(
+              projectId: projectId,
+              projectName: name,
+            ),
+          ),
+        );
+      } catch (e) {
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not create project: $e'),
+          ),
+        );
+      }
+    },
+  );
+}
+
+
 
   Widget _projectsPage() {
     return SingleChildScrollView(
@@ -784,8 +907,21 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   ],
                 ),
               ),
-              const Icon(Icons.arrow_forward_ios_rounded,
-                  color: muted, size: 15),
+              IconButton(
+                icon: const Icon(Icons.folder_open_rounded),
+                tooltip: 'Open project files',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ProjectFilesPage(
+                        projectId: project.id,
+                        projectName: project.name,
+                      ),
+                    ),
+                    );
+                },
+              ),
             ],
           ),
         );
@@ -978,11 +1114,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
 }
 
 class _CreateProjectForm extends StatefulWidget {
-  final void Function(
-    String name,
-    String description,
-    List<String> files,
-  ) onCreate;
+  final Future<void> Function(
+  String name,
+  String description,
+  String repositoryUrl,
+  String teamLeaderId,
+  String developerId,
+) onCreate;
 
   const _CreateProjectForm({required this.onCreate});
 
@@ -994,6 +1132,11 @@ class _CreateProjectFormState extends State<_CreateProjectForm> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
+  final _repositoryController = TextEditingController();
+  final _teamLeaderIdController = TextEditingController();
+  final _developerIdController = TextEditingController();
+  
+  bool _saving = false;  
   List<String> selectedFiles = [];
   bool _pickingFiles = false;
 
@@ -1002,6 +1145,9 @@ class _CreateProjectFormState extends State<_CreateProjectForm> {
     _nameController.dispose();
     _descriptionController.dispose();
     super.dispose();
+    _repositoryController.dispose();
+    _teamLeaderIdController.dispose();
+    _developerIdController.dispose();
   }
 
 
@@ -1100,6 +1246,41 @@ Future<void> pickFiles() async {
                                 ? 'Please add a project description'
                                 : null,
                       ),
+
+                     TextFormField(
+                       controller: _repositoryController,
+                       decoration: const InputDecoration(
+                         labelText: 'Repository URL',
+                         hintText: 'https://github.com/organization/repository',
+                       ),
+                     ),
+
+                     const SizedBox(height: 16),
+
+                     TextFormField(
+                       controller: _teamLeaderIdController,
+                       decoration: const InputDecoration(
+                         labelText: 'Team Leader Firebase UID',
+                       ),
+                       validator: (value) =>
+                           value == null || value.trim().isEmpty
+                               ? 'Enter the Team Leader UID'
+                               : null,
+                     ),
+
+                     const SizedBox(height: 16),
+
+                     TextFormField(
+                       controller: _developerIdController,
+                       decoration: const InputDecoration(
+                         labelText: 'Developer Firebase UID',
+                       ),
+                       validator: (value) =>
+                           value == null || value.trim().isEmpty
+                               ? 'Enter the Developer UID'
+                               : null,
+                     ),
+
                       const SizedBox(height: 28),
                       const Divider(color: Color(0xFFF0EDF5)),
                       const SizedBox(height: 22),
@@ -1243,17 +1424,29 @@ Future<void> pickFiles() async {
                           const SizedBox(width: 13),
                           Expanded(
                             child: FilledButton.icon(
-                              onPressed: () {
-                                if (_formKey.currentState!.validate()) {
-                                  widget.onCreate(
-                                    _nameController.text.trim(),
-                                    _descriptionController.text.trim(),
-                                    List<String>.from(selectedFiles),
-                                  );
-                                }
-                              },
+                              onPressed: _saving
+                                  ? null
+                                  : () async {
+                                      if (!_formKey.currentState!.validate()) return;
+
+                                      setState(() => _saving = true);
+
+                                      try {
+                                        await widget.onCreate(
+                                          _nameController.text.trim(),
+                                          _descriptionController.text.trim(),
+                                          _repositoryController.text.trim(),
+                                          _teamLeaderIdController.text.trim(),
+                                          _developerIdController.text.trim(),
+                                        );
+                                      } finally {
+                                        if (mounted) {
+                                          setState(() => _saving = false);
+                                        }
+                                      }
+                                    },
                               icon: const Icon(Icons.add_rounded),
-                              label: const Text('Create project'),
+                              label: Text(_saving ? 'Creating project...' : 'Create project'),
                               style: FilledButton.styleFrom(
                                 backgroundColor: const Color(0xFF654A99),
                                 foregroundColor: Colors.white,
