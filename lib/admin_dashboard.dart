@@ -61,6 +61,76 @@ class _AdminDashboardState extends State<AdminDashboard> {
 
   
 
+Future<void> _addActivity() async {
+  final titleController = TextEditingController();
+  final descriptionController = TextEditingController();
+
+  try {
+    await showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Add Activity'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: titleController,
+              decoration: const InputDecoration(
+                labelText: 'Activity Title',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: descriptionController,
+              decoration: const InputDecoration(
+                labelText: 'Description',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              if (titleController.text.trim().isEmpty) return;
+
+              try {
+                await FirebaseFirestore.instance
+                    .collection('onboarding_activities')
+                    .add({
+                  'title': titleController.text.trim(),
+                  'description': descriptionController.text.trim(),
+                  'createdAt': FieldValue.serverTimestamp(),
+                  'status': 'pending',
+                });
+
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext);
+                }
+              } catch (e) {
+                if (dialogContext.mounted) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    SnackBar(content: Text('Could not save: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  } finally {
+    titleController.dispose();
+    descriptionController.dispose();
+  }
+}
+
+
+
 
 Future<String> createProjectInFirestore({
   required String name,
@@ -995,33 +1065,109 @@ Future<void> _loadProjects() async {
     );
   }
 
-  Widget _schedulePage() {
-    return _sectionPage(
-      Icons.calendar_month_rounded,
-      'Onboarding schedule',
-      'Plan learning activities, reviews, and project milestones.',
-      [
-        _detailTile(
-          Icons.event_available_outlined,
-          'Upcoming activities',
-          'No scheduled activities yet.',
-          palePink,
+Widget _schedulePage() {
+  return SingleChildScrollView(
+    padding: const EdgeInsets.all(28),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Onboarding Schedule',
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+          ),
         ),
-        _detailTile(
-          Icons.school_outlined,
-          'Learning milestones',
-          'Plan day-wise learning goals for developers.',
-          lightPurple,
+
+        const SizedBox(height: 10),
+
+        const Text(
+          'Manage onboarding activities for developers.',
         ),
-        _detailTile(
-          Icons.groups_outlined,
-          'Mentor meetings',
-          'Coordinate project walkthroughs and review sessions.',
-          lightBlue,
+
+        const SizedBox(height: 20),
+
+        ElevatedButton.icon(
+          onPressed: _addActivity,
+          icon: const Icon(Icons.add),
+          label: const Text('Add Activity'),
+        ),
+
+        const SizedBox(height: 25),
+
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection('onboarding_activities')
+              .orderBy('createdAt', descending: true)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return Text('Error: ${snapshot.error}');
+            }
+
+            if (!snapshot.hasData) {
+              return const Center(
+                child: CircularProgressIndicator(),
+              );
+            }
+
+            final activities = snapshot.data!.docs;
+
+            if (activities.isEmpty) {
+              return const Text(
+                'No activities added yet.',
+              );
+            }
+
+            return ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: activities.length,
+              itemBuilder: (context, index) {
+                final activity = activities[index];
+                final data = activity.data();
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: ListTile(
+                    leading: const Icon(
+                      Icons.event_note,
+                      color: Color(0xFF7653B6),
+                    ),
+                    title: Text(data['title'] ?? ''),
+                    subtitle: Text(data['description'] ?? ''),
+                    trailing: IconButton(
+                      icon: const Icon(
+                        Icons.delete_outline,
+                        color: Colors.red,
+                      ),
+                      onPressed: () async {
+                        try {
+                          await FirebaseFirestore.instance
+                              .collection('onboarding_activities')
+                              .doc(activity.id)
+                              .delete();
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('Delete failed: $e'),
+                              ),
+                            );
+                          }
+                        }
+                      },
+                    ),
+                  ),
+                );
+              },
+            );
+          },
         ),
       ],
-    );
-  }
+    ),
+  );
+}
 
   Widget _sectionPage(
     IconData icon,
