@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'team_leader_dashboard.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class TeamLeaderPageContent extends StatelessWidget {
   final String page;
@@ -21,7 +22,7 @@ class TeamLeaderPageContent extends StatelessWidget {
         'Assign Task' => const AssignTaskContent(),
         'Summary' => const ProjectSummaryContent(),
         'Files' => const ProjectFilesContent(),
-        'Team Leader' => const TeamLeaderProfileContent(),
+        'Profile' => const Profile(),
         'Team Members' => const TeamMembersContent(),
         _ => const ProjectSummaryContent(),
       },
@@ -929,81 +930,240 @@ class ProjectSummaryContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      return const Text('Please log in to view your projects.');
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SectionHeading(
           title: 'Project Summary',
-          subtitle: 'A quick view of the current project status.',
+          subtitle: 'View projects assigned to you by the Admin.',
         ),
-        const DashboardCard(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Developer Onboarding Platform',
+
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection('projects')
+              .where('teamLeaderId', isEqualTo: user.uid)
+              .snapshots(),
+
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return DashboardCard(
+                child: Text(
+                  'Unable to load projects: ${snapshot.error}',
+                ),
+              );
+            }
+
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(
+                child: CircularProgressIndicator(),
+              );
+            }
+
+            final projects = snapshot.data?.docs ?? [];
+
+            if (projects.isEmpty) {
+              return const DashboardCard(
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.folder_open_rounded,
+                      size: 45,
+                      color: tlMuted,
+                    ),
+                    SizedBox(height: 12),
+                    Text(
+                      'No projects assigned yet.',
                       style: TextStyle(
-                        fontSize: 19,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w700,
                         color: tlText,
                       ),
                     ),
-                  ),
-                  Chip(label: Text('In progress'), backgroundColor: tlLilac),
-                ],
-              ),
-              SizedBox(height: 12),
-              Text(
-                'A workspace that helps new developers understand company '
-                'projects, complete assigned tasks and track their learning.',
-                style: TextStyle(height: 1.7, fontSize: 13, color: tlMuted),
-              ),
-              SizedBox(height: 24),
-              _SummaryLine(label: 'Team leader', value: 'You'),
-              _SummaryLine(label: 'Project priority', value: 'High'),
-              _SummaryLine(label: 'Target progress', value: '68%'),
-              _SummaryLine(label: 'Current phase', value: 'Development'),
-            ],
-          ),
-        ),
-        const SizedBox(height: 20),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final count = constraints.maxWidth > 650 ? 3 : 1;
+                    SizedBox(height: 5),
+                    Text(
+                      'Projects assigned by the Admin will appear here.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: tlMuted),
+                    ),
+                  ],
+                ),
+              );
+            }
 
-            return GridView.count(
-              crossAxisCount: count,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisSpacing: 14,
-              mainAxisSpacing: 14,
-              childAspectRatio: count == 1 ? 3.2 : 1.6,
-              children: const [
-                MetricCard(
-                  label: 'Total tasks',
-                  value: '32',
-                  note: 'All project tasks',
-                  icon: Icons.assignment_outlined,
-                  color: tlPink,
-                ),
-                MetricCard(
-                  label: 'Completed tasks',
-                  value: '22',
-                  note: 'Ready for review',
-                  icon: Icons.check_circle_outline,
-                  color: tlLilac,
-                ),
-                MetricCard(
-                  label: 'Open bugs',
-                  value: '08',
-                  note: 'Pending fixes',
-                  icon: Icons.bug_report_outlined,
-                  color: tlBlue,
-                ),
-              ],
+            return Column(
+              children: projects.map((projectDocument) {
+                final data = projectDocument.data();
+
+                final name =
+                    (data['name'] ?? 'Unnamed Project').toString();
+
+                final description =
+                    (data['description'] ?? 'No description available')
+                        .toString();
+
+                final repositoryUrl =
+                    (data['repositoryUrl'] ?? '').toString();
+
+                final status =
+                    (data['status'] ?? 'Active').toString();
+
+                final developerIds =
+                    (data['developerIds'] ?? '').toString();
+
+                final createdAt = data['createdAt'];
+
+                String createdDate = 'Not available';
+
+                if (createdAt is Timestamp) {
+                  final date = createdAt.toDate();
+
+                  createdDate =
+                      '${date.day}/${date.month}/${date.year}';
+                }
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 18),
+                  child: DashboardCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Project name and status
+                        Row(
+                          children: [
+                            const CircleAvatar(
+                              backgroundColor: tlLilac,
+                              child: Icon(
+                                Icons.folder_rounded,
+                                color: tlText,
+                              ),
+                            ),
+
+                            const SizedBox(width: 12),
+
+                            Expanded(
+                              child: Text(
+                                name,
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: tlText,
+                                ),
+                              ),
+                            ),
+
+                            Chip(
+                              label: Text(status),
+                              backgroundColor: tlLilac,
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 20),
+
+                        // Description
+                        const Text(
+                          'Project Description',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: tlText,
+                          ),
+                        ),
+
+                        const SizedBox(height: 7),
+
+                        Text(
+                          description,
+                          style: const TextStyle(
+                            height: 1.6,
+                            fontSize: 13,
+                            color: tlMuted,
+                          ),
+                        ),
+
+                        const SizedBox(height: 20),
+
+                        const Divider(color: Color(0xFFF0EFF5)),
+
+                        // GitHub repository
+                        const SizedBox(height: 12),
+
+                        const Row(
+                          children: [
+                            Icon(
+                              Icons.code_rounded,
+                              color: tlPurple,
+                              size: 20,
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'GitHub Repository',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: tlText,
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 8),
+
+                       if (repositoryUrl.isNotEmpty)
+  InkWell(
+    onTap: () async {
+      final uri = Uri.tryParse(repositoryUrl);
+
+      if (uri != null &&
+          (uri.scheme == 'https' || uri.scheme == 'http') &&
+          uri.host.isNotEmpty) {
+        await launchUrl(
+          uri,
+          mode: LaunchMode.externalApplication,
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Invalid repository URL'),
+          ),
+        );
+      }
+    },
+    child: Text(
+      repositoryUrl,
+      style: const TextStyle(
+        color: Color(0xFF7653B6),
+        fontSize: 13,
+        decoration: TextDecoration.underline,
+      ),
+    ),
+  )
+else
+  const Text(
+    'No repository URL provided.',
+    style: TextStyle(color: tlMuted),
+  ),
+                        
+
+                        const SizedBox(height: 18),
+
+                        // Additional project details
+                        const Divider(color: Color(0xFFF0EFF5)),
+
+                        _SummaryLine(
+                          label: 'Created on',
+                          value: createdDate,
+                        ),
+
+                        
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
             );
           },
         ),
@@ -1125,120 +1285,13 @@ class ProjectFilesContent extends StatelessWidget {
   }
 }
 
-// ============================================================
-// BUG TRACKER
-// ============================================================
 
-class ProjectBugsContent extends StatefulWidget {
-  const ProjectBugsContent({super.key});
-
-  @override
-  State<ProjectBugsContent> createState() => _ProjectBugsContentState();
-}
-
-class _ProjectBugsContentState extends State<ProjectBugsContent> {
-  final List<Map<String, String>> bugs = [
-    {
-      'title': 'Registration form validation issue',
-      'severity': 'High',
-      'status': 'Open',
-    },
-    {
-      'title': 'Dashboard layout overflows on small screen',
-      'severity': 'Medium',
-      'status': 'In progress',
-    },
-    {
-      'title': 'Incorrect error message on login',
-      'severity': 'Low',
-      'status': 'Open',
-    },
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SectionHeading(
-          title: 'Bug Tracker',
-          subtitle: 'Review issues and monitor fixes with your developers.',
-        ),
-        DashboardCard(
-          child: Column(
-            children: bugs.map((bug) {
-              return Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: const BoxDecoration(
-                  border: Border(bottom: BorderSide(color: Color(0xFFF0EFF5))),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.bug_report_outlined,
-                      color: Color(0xFFD77B8A),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            bug['title']!,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: tlText,
-                              fontSize: 12,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Severity: ${bug['severity']}',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: tlMuted,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    DropdownButton<String>(
-                      value: bug['status'],
-                      underline: const SizedBox(),
-                      items: ['Open', 'In progress', 'Resolved']
-                          .map(
-                            (status) => DropdownMenuItem(
-                              value: status,
-                              child: Text(
-                                status,
-                                style: const TextStyle(fontSize: 11),
-                              ),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (status) {
-                        if (status != null) {
-                          setState(() => bug['status'] = status);
-                        }
-                      },
-                    ),
-                  ],
-                ),
-              );
-            }).toList(),
-          ),
-        ),
-      ],
-    );
-  }
-}
 // ============================================================
 // TEAM LEADER PROFILE
 // ============================================================
 
-class TeamLeaderProfileContent extends StatelessWidget {
-  const TeamLeaderProfileContent({super.key});
+class Profile extends StatelessWidget {
+  const Profile({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -1246,7 +1299,7 @@ class TeamLeaderProfileContent extends StatelessWidget {
 
     if (user == null) {
       return const SectionHeading(
-        title: 'Team Leader Profile',
+        title: 'Profile',
         subtitle: 'Please log in to view your profile.',
       );
     }

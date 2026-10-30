@@ -142,10 +142,10 @@ class _TeamLeaderDashboardState extends State<TeamLeaderDashboard> {
                     Expanded(
                       child: switch (selectedPage) {
                         'Team Members' => const TeamMembersPage(),
-                        'Manage Team' => ManageTeamPage(
+                        'Select Team' => ManageTeamPage(
                           onSaved: () => navigateTo('Team Members'),
                         ),
-                        'My Team' => const MyTeamPage(),
+                        'Monitor Team' => const MyTeamPage(),
                         _ => TeamLeaderPageContent(
                           page: selectedPage,
                           onNavigate: navigateTo,
@@ -167,75 +167,98 @@ class _TeamLeaderDashboardState extends State<TeamLeaderDashboard> {
     );
   }
 
-  Widget _buildSidebar() {
-    return Container(
-      width: 258,
-      color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(18, 25, 14, 18),
-  child: SingleChildScrollView(
-  child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-          Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(colors: [tlPurple, tlBlue]),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(Icons.code_rounded, color: devText, size: 25),
-              ),
-              const SizedBox(width: 11),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'CodeAtlas',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w800,
-                        color: tlText,
-                      ),
+
+
+   Widget _buildSidebar() {
+  return Container(
+    width: 258,
+    color: Colors.white,
+    child: SafeArea(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Logo and workspace name
+          Padding(
+            padding: const EdgeInsets.fromLTRB(22, 24, 16, 22),
+            child: Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [tlPurple, tlBlue],
                     ),
-                    Text(
-                      'TEAM WORKSPACE',
-                      style: TextStyle(
-                        fontSize: 9,
-                        letterSpacing: 1.2,
-                        color: tlMuted,
-                      ),
-                    ),
-                  ],
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: const Icon(
+                    Icons.code_rounded,
+                    color: devText,
+                    size: 25,
+                  ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'CodeAtlas',
+                        style: TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w800,
+                          color: tlText,
+                        ),
+                      ),
+                      Text(
+                        'TEAM WORKSPACE',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: tlMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 35),
+
+          // Menu heading
           const Padding(
-            padding: EdgeInsets.only(left: 12, bottom: 12),
+            padding: EdgeInsets.only(left: 23, bottom: 12),
             child: Text(
               'TEAM LEADER MENU',
               style: TextStyle(
                 fontSize: 10,
-                letterSpacing: 1.3,
+                letterSpacing: 1.8,
                 fontWeight: FontWeight.w700,
                 color: tlMuted,
               ),
             ),
           ),
-          _navItem('Assign Task', Icons.add_task_rounded),
-          const SizedBox(height: 5),
-          _projectMenu(),
-          const SizedBox(height: 5),
-          _navItem('Team Leader', Icons.manage_accounts_rounded),
-          _navItem('Team Members', Icons.groups_rounded),
-          _navItem('Manage Team', Icons.group_add_rounded),
-          _navItem('My Team', Icons.groups_rounded),
-          const SizedBox(height: 20),
+
+          // Navigation items
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              children: [
+                _navItem('Assign Task', Icons.add_task_rounded),
+                const SizedBox(height: 5),
+                _projectMenu(),
+                const SizedBox(height: 5),
+                
+                _navItem('Team Members', Icons.groups_rounded),
+                _navItem('Select Team', Icons.group_add_rounded),
+                _navItem('Monitor Team', Icons.groups_rounded),
+                _navItem('Profile', Icons.manage_accounts_rounded),
+              ],
+            ),
+          ),
+
+          // Bottom profile rectangle
           Container(
+            margin: const EdgeInsets.all(14),
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
@@ -243,56 +266,46 @@ class _TeamLeaderDashboardState extends State<TeamLeaderDashboard> {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(16),
             ),
-            child: const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: const Row(
               children: [
-                Icon(Icons.auto_awesome_rounded, size: 23),
-                SizedBox(height: 9),
-                Text(
-                  'Keep your team moving!',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 13,
+                CircleAvatar(
+                  backgroundColor: Colors.white,
+                  child: Icon(
+                    Icons.person,
                     color: tlText,
                   ),
                 ),
-                SizedBox(height: 5),
-                Text(
-                  'Assign tasks, track blockers and celebrate progress.',
-                  style: TextStyle(fontSize: 11, height: 1.5, color: tlText),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Team Leader',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: tlText,
+                        ),
+                      ),
+                      
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 18),
-          const Divider(color: Color(0xFFF0EFF5)),
-          ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 5),
-            leading: const CircleAvatar(
-              backgroundColor: tlLilac,
-              child: Icon(Icons.person, color: tlText),
-            ),
-            title: const Text(
-              'Team Leader',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: tlText,
-              ),
-            ),
-            subtitle: const Text(
-              'Project workspace',
-              style: TextStyle(fontSize: 10, color: tlMuted),
-            ),
-            trailing: const Icon(Icons.more_horiz, color: tlMuted),
-          ),
         ],
       ),
     ),
-    );
-  }
+  );
+}
+
+
+
+
 
   Widget _projectMenu() {
     final projectSelected = ['Summary', 'Files'].contains(selectedPage);

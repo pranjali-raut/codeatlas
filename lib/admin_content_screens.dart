@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 // 1) Create Project Screen
 class CreateProjectScreen extends StatefulWidget {
@@ -171,16 +172,305 @@ class ProgressScreen extends StatelessWidget {
 }
 
 // 2b) Teams Screen
+
 class TeamsScreen extends StatelessWidget {
   const TeamsScreen({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Text("Teams Management View (Firestore Connected)", style: TextStyle(fontSize: 16)),
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('projects')
+          .snapshots(),
+
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Text('Error loading teams: ${snapshot.error}'),
+          );
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        final projects = snapshot.data?.docs ?? [];
+
+        if (projects.isEmpty) {
+          return const Center(
+            child: Text(
+              'No projects available.',
+              style: TextStyle(fontSize: 16),
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(20),
+          itemCount: projects.length,
+
+          itemBuilder: (context, index) {
+            final projectData = projects[index].data();
+
+            final projectName =
+                (projectData['name'] ?? 'Unnamed Project').toString();
+
+            final teamLeaderId =
+                (projectData['teamLeaderId'] ?? '').toString();
+
+            // Supports both a single developer UID and a list of UIDs.
+            final developerData = projectData['developerIds'];
+
+            final List<String> developerIds =
+                developerData is List
+                    ? developerData.map((e) => e.toString()).toList()
+                    : developerData is String &&
+                            developerData.isNotEmpty
+                        ? [developerData]
+                        : [];
+
+            return FutureBuilder<List<String>>(
+              future: () async {
+                final List<String> memberNames = [];
+
+                // Fetch Team Leader name
+                if (teamLeaderId.isNotEmpty) {
+                  final leaderDoc = await FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(teamLeaderId)
+                      .get();
+
+                  if (leaderDoc.exists) {
+                    final leaderName =
+                        leaderDoc.data()?['name']?.toString() ??
+                            'Name not available';
+
+                    memberNames.add(leaderName);
+                  } else {
+                    memberNames.add('Team Leader not found');
+                  }
+                } else {
+                  memberNames.add('Not assigned');
+                }
+
+                // Fetch Developer names
+                for (final developerId in developerIds) {
+                  final developerDoc = await FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(developerId)
+                      .get();
+
+                  if (developerDoc.exists) {
+                    final developerName =
+                        developerDoc.data()?['name']?.toString() ??
+                            'Name not available';
+
+                    memberNames.add(developerName);
+                  } else {
+                    memberNames.add('Developer not found');
+                  }
+                }
+
+                return memberNames;
+              }(),
+
+              builder: (context, memberSnapshot) {
+                final memberNames = memberSnapshot.data ?? [];
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 20),
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Project Name
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.folder_rounded,
+                              color: Color(0xFF7653B6),
+                              size: 25,
+                            ),
+                            const SizedBox(width: 12),
+
+                            Expanded(
+                              child: Text(
+                                projectName,
+                                style: const TextStyle(
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 18),
+                        const Divider(),
+
+                        // Team Details Heading
+                        const Text(
+                          'Project Team',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+
+                        const SizedBox(height: 14),
+
+                        if (memberSnapshot.connectionState ==
+                            ConnectionState.waiting)
+                          const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(12),
+                              child: CircularProgressIndicator(),
+                            ),
+                          )
+                        else if (memberSnapshot.hasError)
+                          const Text('Unable to load team members.')
+                        else ...[
+                          // Team Leader
+                          Row(
+                            children: [
+                              const CircleAvatar(
+                                backgroundColor: Color(0xFFE7C6FF),
+                                child: Icon(
+                                  Icons.person,
+                                  color: Color(0xFF7653B6),
+                                ),
+                              ),
+
+                              const SizedBox(width: 12),
+
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Team Leader',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+
+                                    Text(
+                                      memberNames.isNotEmpty
+                                          ? memberNames[0]
+                                          : 'Not assigned',
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+
+                              const Icon(
+                                Icons.verified_user_outlined,
+                                color: Color(0xFF7653B6),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 18),
+
+                          // Developers Heading
+                          const Text(
+                            'Developers',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey,
+                            ),
+                          ),
+
+                          const SizedBox(height: 10),
+
+                          if (developerIds.isEmpty)
+                            const Text(
+                              'No developers assigned.',
+                              style: TextStyle(color: Colors.grey),
+                            )
+                          else
+                            ...List.generate(
+                              developerIds.length,
+                              (developerIndex) {
+                                final nameIndex = developerIndex + 1;
+
+                                final developerName =
+                                    memberNames.length > nameIndex
+                                        ? memberNames[nameIndex]
+                                        : 'Loading...';
+
+                                return Padding(
+                                  padding: const EdgeInsets.only(
+                                    bottom: 12,
+                                  ),
+
+                                  child: Row(
+                                    children: [
+                                      const CircleAvatar(
+                                        radius: 19,
+                                        backgroundColor:
+                                            Color(0xFFBBd0FF),
+                                        child: Icon(
+                                          Icons.person_outline,
+                                          color: Color(0xFF7653B6),
+                                        ),
+                                      ),
+
+                                      const SizedBox(width: 12),
+
+                                      Expanded(
+                                        child: Text(
+                                          developerName,
+                                          style: const TextStyle(
+                                            fontSize: 14,
+                                            fontWeight:
+                                                FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
+
+                                      const Text(
+                                        'Developer',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
     );
   }
 }
+
 
 // 2c) Schedule Screen
 class ScheduleScreen extends StatelessWidget {
@@ -193,3 +483,5 @@ class ScheduleScreen extends StatelessWidget {
     );
   }
 }
+
+
