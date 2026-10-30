@@ -4,6 +4,7 @@ import 'developer_theme.dart';
 import 'developer_content.dart';
 import 'loginpage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'chatbot_screen.dart';
 
 class DeveloperDashboard extends StatefulWidget {
   const DeveloperDashboard({super.key});
@@ -191,7 +192,6 @@ class _DeveloperDashboardState extends State<DeveloperDashboard> {
                           children: [
                             menuItem('Summary', Icons.dashboard_outlined),
                             menuItem('Files', Icons.folder_copy_outlined),
-                            menuItem('Bugs', Icons.bug_report_outlined),
                           ],
                         ),
                         expandableMenu(
@@ -219,7 +219,6 @@ class _DeveloperDashboardState extends State<DeveloperDashboard> {
                             menuItem('Branch', Icons.account_tree_outlined),
                           ],
                         ),
-                        menuItem('Progress', Icons.trending_up_rounded),
                         menuItem('My Profile', Icons.person_outline_rounded),
                       ],
                     ),
@@ -250,13 +249,6 @@ class _DeveloperDashboardState extends State<DeveloperDashboard> {
                                 'Developer',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w700,
-                                  color: devText,
-                                ),
-                              ),
-                              Text(
-                                'Sakshi',
-                                style: TextStyle(
-                                  fontSize: 11,
                                   color: devText,
                                 ),
                               ),
@@ -328,11 +320,13 @@ class _DeveloperDashboardState extends State<DeveloperDashboard> {
                     ),
                   ),
                   Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(26),
-                      child: DeveloperPageContent(page: selectedPage),
-                    ),
-                  ),
+  child: selectedPage == 'Chatbot'
+      ? const ChatbotScreen()
+      : SingleChildScrollView(
+          padding: const EdgeInsets.all(26),
+          child: DeveloperPageContent(page: selectedPage),
+        ),
+),
                 ],
               ),
             ),
