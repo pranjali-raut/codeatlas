@@ -1,4 +1,5 @@
 
+import 'package:codeatlas/admin_content_screens.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'developer_theme.dart';
@@ -45,18 +46,16 @@ class _AdminDashboardState extends State<AdminDashboard> {
     'Overview',
     'Create Project',
     'Projects',
-    'Progress',
     'Teams',
-    'Schedule',
+    'TodoList',
   ];
 
   final List<IconData> menuIcons = [
     Icons.grid_view_rounded,
     Icons.add_box_outlined,
     Icons.folder_open_rounded,
-    Icons.trending_up_rounded,
     Icons.groups_2_outlined,
-    Icons.calendar_month_rounded,
+    Icons.checklist_rounded
   ];
 
   
@@ -396,13 +395,7 @@ Future<void> _loadProjects() async {
                                   color: devText,
                                 ),
                               ),
-                              Text(
-                                'Akanksha',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: devText,
-                                ),
-                              ),
+                              
                             ],
                           ),
                         ),
@@ -506,11 +499,9 @@ Future<void> _loadProjects() async {
       case 2:
         return _projectsPage();
       case 3:
-        return _progressPage();
+        return TeamsScreen();
       case 4:
-        return _teamsPage();
-      case 5:
-        return _schedulePage();
+        return const TodoListScreen();
       default:
         return _overviewPage();
     }
@@ -1009,33 +1000,7 @@ Future<void> _loadProjects() async {
     );
   }
 
-  Widget _progressPage() {
-    return _sectionPage(
-      Icons.insights_rounded,
-      'Onboarding progress',
-      'Monitor how quickly developers understand your projects.',
-      [
-        _detailTile(
-          Icons.task_alt_rounded,
-          'Completed activities',
-          '0 activities completed',
-          periwinkle,
-        ),
-        _detailTile(
-          Icons.pending_actions_rounded,
-          'Pending activities',
-          'Tasks will appear when onboarding plans are assigned.',
-          lightPurple,
-        ),
-        _detailTile(
-          Icons.flag_outlined,
-          'Project milestones',
-          'Track learning goals and onboarding milestones.',
-          lightBlue,
-        ),
-      ],
-    );
-  }
+ 
 
   Widget _teamsPage() {
     return _sectionPage(
@@ -1065,109 +1030,7 @@ Future<void> _loadProjects() async {
     );
   }
 
-Widget _schedulePage() {
-  return SingleChildScrollView(
-    padding: const EdgeInsets.all(28),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Onboarding Schedule',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
 
-        const SizedBox(height: 10),
-
-        const Text(
-          'Manage onboarding activities for developers.',
-        ),
-
-        const SizedBox(height: 20),
-
-        ElevatedButton.icon(
-          onPressed: _addActivity,
-          icon: const Icon(Icons.add),
-          label: const Text('Add Activity'),
-        ),
-
-        const SizedBox(height: 25),
-
-        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: FirebaseFirestore.instance
-              .collection('onboarding_activities')
-              .orderBy('createdAt', descending: true)
-              .snapshots(),
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return Text('Error: ${snapshot.error}');
-            }
-
-            if (!snapshot.hasData) {
-              return const Center(
-                child: CircularProgressIndicator(),
-              );
-            }
-
-            final activities = snapshot.data!.docs;
-
-            if (activities.isEmpty) {
-              return const Text(
-                'No activities added yet.',
-              );
-            }
-
-            return ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: activities.length,
-              itemBuilder: (context, index) {
-                final activity = activities[index];
-                final data = activity.data();
-
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: ListTile(
-                    leading: const Icon(
-                      Icons.event_note,
-                      color: Color(0xFF7653B6),
-                    ),
-                    title: Text(data['title'] ?? ''),
-                    subtitle: Text(data['description'] ?? ''),
-                    trailing: IconButton(
-                      icon: const Icon(
-                        Icons.delete_outline,
-                        color: Colors.red,
-                      ),
-                      onPressed: () async {
-                        try {
-                          await FirebaseFirestore.instance
-                              .collection('onboarding_activities')
-                              .doc(activity.id)
-                              .delete();
-                        } catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Delete failed: $e'),
-                              ),
-                            );
-                          }
-                        }
-                      },
-                    ),
-                  ),
-                );
-              },
-            );
-          },
-        ),
-      ],
-    ),
-  );
-}
 
   Widget _sectionPage(
     IconData icon,
@@ -1568,6 +1431,331 @@ class _FieldLabel extends StatelessWidget {
         color: ink,
         fontWeight: FontWeight.w700,
         fontSize: 12,
+      ),
+    );
+  }
+}
+
+
+
+class TodoListScreen extends StatefulWidget {
+  const TodoListScreen({super.key});
+
+  @override
+  State<TodoListScreen> createState() => _TodoListScreenState();
+}
+
+class _TodoListScreenState extends State<TodoListScreen> {
+  final TextEditingController _taskController =
+      TextEditingController();
+
+  final List<Map<String, dynamic>> _tasks = [];
+
+  void _addTask() {
+    final task = _taskController.text.trim();
+
+    if (task.isEmpty) return;
+
+    setState(() {
+      _tasks.add({
+        'title': task,
+        'completed': false,
+      });
+    });
+
+    _taskController.clear();
+  }
+
+  void _toggleTask(int index, bool? value) {
+    setState(() {
+      _tasks[index]['completed'] = value ?? false;
+    });
+  }
+
+  void _deleteTask(int index) {
+    setState(() {
+      _tasks.removeAt(index);
+    });
+  }
+
+  void _clearCompleted() {
+    setState(() {
+      _tasks.removeWhere(
+        (task) => task['completed'] == true,
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _taskController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final completedCount =
+        _tasks.where((task) => task['completed'] == true).length;
+
+    final pendingCount = _tasks.length - completedCount;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Heading
+          const Text(
+            'My To-Do List',
+            style: TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF7653B6),
+            ),
+          ),
+
+          const SizedBox(height: 6),
+
+          const Text(
+            'Organize your tasks and stay productive.',
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey,
+            ),
+          ),
+
+          const SizedBox(height: 25),
+
+          // Statistics
+          Row(
+            children: [
+              _buildStatCard(
+                'Total Tasks',
+                _tasks.length,
+                Icons.checklist_rounded,
+              ),
+              const SizedBox(width: 12),
+              _buildStatCard(
+                'Pending',
+                pendingCount,
+                Icons.pending_actions_rounded,
+              ),
+              const SizedBox(width: 12),
+              _buildStatCard(
+                'Completed',
+                completedCount,
+                Icons.task_alt_rounded,
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 28),
+
+          // Add task
+          Card(
+            elevation: 0,
+            color: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+              side: const BorderSide(
+                color: Color(0xFFE7C6FF),
+              ),
+            ),
+
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _taskController,
+                      decoration: InputDecoration(
+                        hintText: 'Enter a new task...',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        contentPadding:
+                            const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 12,
+                        ),
+                      ),
+                      onSubmitted: (_) => _addTask(),
+                    ),
+                  ),
+
+                  const SizedBox(width: 12),
+
+                  ElevatedButton.icon(
+                    onPressed: _addTask,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add Task'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF7653B6),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 16,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 25),
+
+          // Task heading
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Your Tasks',
+                  style: TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+
+              TextButton.icon(
+                onPressed: completedCount == 0
+                    ? null
+                    : _clearCompleted,
+                icon: const Icon(Icons.delete_sweep),
+                label: const Text('Clear Completed'),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          // Task list
+          if (_tasks.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(35),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8F5FC),
+                borderRadius: BorderRadius.circular(14),
+              ),
+
+              child: const Column(
+                children: [
+                  Icon(
+                    Icons.task_alt_rounded,
+                    size: 50,
+                    color: Color(0xFFB8A1D9),
+                  ),
+                  SizedBox(height: 12),
+                  Text(
+                    'No tasks added yet!',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  SizedBox(height: 5),
+                  Text(
+                    'Add a task above to get started.',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ],
+              ),
+            )
+          else
+            ...List.generate(_tasks.length, (index) {
+              final task = _tasks[index];
+              final isCompleted = task['completed'] == true;
+
+              return Card(
+                elevation: 0,
+                margin: const EdgeInsets.only(bottom: 10),
+                color: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: const BorderSide(
+                    color: Color(0xFFF0EAF7),
+                  ),
+                ),
+
+                child: CheckboxListTile(
+                  value: isCompleted,
+                  onChanged: (value) =>
+                      _toggleTask(index, value),
+
+                  activeColor: const Color(0xFF7653B6),
+
+                  title: Text(
+                    task['title'],
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      decoration: isCompleted
+                          ? TextDecoration.lineThrough
+                          : TextDecoration.none,
+                      color: isCompleted
+                          ? Colors.grey
+                          : const Color(0xFF333044),
+                    ),
+                  ),
+
+                  secondary: IconButton(
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.redAccent,
+                    ),
+                    onPressed: () => _deleteTask(index),
+                  ),
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatCard(
+    String title,
+    int count,
+    IconData icon,
+  ) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF5EEFC),
+          borderRadius: BorderRadius.circular(12),
+        ),
+
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              icon,
+              color: const Color(0xFF7653B6),
+              size: 23,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              count.toString(),
+              style: const TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Colors.grey,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

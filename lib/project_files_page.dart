@@ -153,35 +153,7 @@ class _ProjectFilesPageState extends State<ProjectFilesPage> {
       appBar: AppBar(
         title: Text(widget.projectName),
 
-        actions: [
-  IconButton(
-    tooltip: 'Upload file',
-    icon: const Icon(Icons.upload_file),
-    onPressed: _busy
-        ? null
-        : () async {
-            try {
-              setState(() => _busy = true);
-
-              await _storage.uploadProjectFile(widget.projectId);
-
-
-            } catch (e) {
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Upload failed: $e'),
-                  ),
-                );
-              }
-            } finally {
-              if (mounted) {
-                setState(() => _busy = false);
-              }
-            }
-          },
-  ),
-],
+       
 
 
 

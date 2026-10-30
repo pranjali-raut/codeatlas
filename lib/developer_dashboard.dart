@@ -4,6 +4,9 @@ import 'developer_theme.dart';
 import 'developer_content.dart';
 import 'loginpage.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'chatbot_screen.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'project_files_page.dart';
 
 class DeveloperDashboard extends StatefulWidget {
   const DeveloperDashboard({super.key});
@@ -191,7 +194,6 @@ class _DeveloperDashboardState extends State<DeveloperDashboard> {
                           children: [
                             menuItem('Summary', Icons.dashboard_outlined),
                             menuItem('Files', Icons.folder_copy_outlined),
-                            menuItem('Bugs', Icons.bug_report_outlined),
                           ],
                         ),
                         expandableMenu(
@@ -219,7 +221,6 @@ class _DeveloperDashboardState extends State<DeveloperDashboard> {
                             menuItem('Branch', Icons.account_tree_outlined),
                           ],
                         ),
-                        menuItem('Progress', Icons.trending_up_rounded),
                         menuItem('My Profile', Icons.person_outline_rounded),
                       ],
                     ),
@@ -250,13 +251,6 @@ class _DeveloperDashboardState extends State<DeveloperDashboard> {
                                 'Developer',
                                 style: TextStyle(
                                   fontWeight: FontWeight.w700,
-                                  color: devText,
-                                ),
-                              ),
-                              Text(
-                                'Sakshi',
-                                style: TextStyle(
-                                  fontSize: 11,
                                   color: devText,
                                 ),
                               ),
@@ -327,18 +321,199 @@ class _DeveloperDashboardState extends State<DeveloperDashboard> {
                       ],
                     ),
                   ),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(26),
-                      child: DeveloperPageContent(page: selectedPage),
-                    ),
-                  ),
+             Expanded(
+  child: selectedPage == 'Chatbot'
+      ? const ChatbotScreen()
+      : selectedPage == 'Files'
+          ? const DeveloperAssignedProjectsScreen()
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(26),
+              child: DeveloperPageContent(page: selectedPage),
+            ),
+),
                 ],
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+
+
+
+
+class DeveloperAssignedProjectsScreen extends StatelessWidget {
+  const DeveloperAssignedProjectsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      return const Center(
+        child: Text('Please log in to view your project files.'),
+      );
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('projects')
+          .where('developerIds', isEqualTo: user.uid)
+          .snapshots(),
+
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Text('Error loading projects: ${snapshot.error}'),
+          );
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        final projects = snapshot.data?.docs ?? [];
+
+        if (projects.isEmpty) {
+          return const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.folder_open_rounded,
+                  size: 55,
+                  color: devMuted,
+                ),
+                SizedBox(height: 12),
+                Text(
+                  'No projects assigned to you yet.',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: devText,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(24),
+          itemCount: projects.length,
+
+          itemBuilder: (context, index) {
+            final project = projects[index];
+            final data = project.data();
+
+            final projectName =
+                (data['name'] ?? 'Unnamed Project').toString();
+
+            final description =
+                (data['description'] ?? 'No description available')
+                    .toString();
+
+            return Card(
+              elevation: 0,
+              margin: const EdgeInsets.only(bottom: 16),
+              color: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: const BorderSide(color: devBorder),
+              ),
+
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: devLilac,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.folder_rounded,
+                            color: devText,
+                            size: 25,
+                          ),
+                        ),
+
+                        const SizedBox(width: 14),
+
+                        Expanded(
+                          child: Text(
+                            projectName,
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                              color: devText,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    Text(
+                      description,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: devMuted,
+                        height: 1.5,
+                      ),
+                    ),
+
+                    const SizedBox(height: 18),
+
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ProjectFilesPage(
+                                projectId: project.id,
+                                projectName: projectName,
+                              ),
+                            ),
+                          );
+                        },
+
+                        icon: const Icon(Icons.folder_open_rounded),
+                        label: const Text('View Project Files'),
+
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: devLilac,
+                          foregroundColor: devText,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 14,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
