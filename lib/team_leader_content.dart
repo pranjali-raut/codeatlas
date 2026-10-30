@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'team_leader_dashboard.dart';
 
 class TeamLeaderPageContent extends StatelessWidget {
@@ -19,11 +21,9 @@ class TeamLeaderPageContent extends StatelessWidget {
         'Assign Task' => const AssignTaskContent(),
         'Summary' => const ProjectSummaryContent(),
         'Files' => const ProjectFilesContent(),
-        'Bugs' => const ProjectBugsContent(),
-        'Schedule' => const ScheduleContent(),
         'Team Leader' => const TeamLeaderProfileContent(),
         'Team Members' => const TeamMembersContent(),
-        _ => ProgressContent(onNavigate: onNavigate),
+        _ => const ProjectSummaryContent(),
       },
     );
   }
@@ -55,13 +55,7 @@ class SectionHeading extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 7),
-          Text(
-            subtitle,
-            style: const TextStyle(
-              fontSize: 12,
-              color: tlMuted,
-            ),
-          ),
+          Text(subtitle, style: const TextStyle(fontSize: 12, color: tlMuted)),
         ],
       ),
     );
@@ -155,10 +149,7 @@ class MetricCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 5),
-          Text(
-            note,
-            style: const TextStyle(fontSize: 11, color: tlMuted),
-          ),
+          Text(note, style: const TextStyle(fontSize: 11, color: tlMuted)),
         ],
       ),
     );
@@ -184,8 +175,8 @@ class ProgressContent extends StatelessWidget {
             final count = constraints.maxWidth > 1000
                 ? 4
                 : constraints.maxWidth > 560
-                    ? 2
-                    : 1;
+                ? 2
+                : 1;
 
             return GridView.count(
               crossAxisCount: count,
@@ -381,6 +372,10 @@ class ActivityRow extends StatelessWidget {
   }
 }
 
+// ============================================================
+// ASSIGN TASK - FIRESTORE INTEGRATION
+// ============================================================
+
 class AssignTaskContent extends StatefulWidget {
   const AssignTaskContent({super.key});
 
@@ -393,10 +388,10 @@ class _AssignTaskContentState extends State<AssignTaskContent> {
   final _titleController = TextEditingController();
   final _descriptionController = TextEditingController();
 
-  String assignee = 'Select team member';
+  String? assigneeId;
   String priority = 'Medium';
   DateTime? dueDate;
-  final List<String> assignedTasks = [];
+  bool isAssigning = false;
 
   @override
   void dispose() {
@@ -405,46 +400,127 @@ class _AssignTaskContentState extends State<AssignTaskContent> {
     super.dispose();
   }
 
-  Future<void> _chooseDate() async {
-    final date = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now().add(const Duration(days: 1)),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-    );
+  void _showMessage(String message) {
+    if (!mounted) return;
 
-    if (date != null) setState(() => dueDate = date);
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _assignTask() {
+  Future<void> _chooseDate() async {
+    final today = DateUtils.dateOnly(DateTime.now());
+
+    final date = await showDatePicker(
+      context: context,
+      initialDate: dueDate ?? today,
+      firstDate: today,
+      lastDate: DateTime(2035),
+    );
+
+    if (date != null && mounted) {
+      setState(() => dueDate = date);
+    }
+  }
+
+  Future<void> _assignTask() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (assignee == 'Select team member') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a team member.')),
-      );
+    final leader = FirebaseAuth.instance.currentUser;
+
+    if (leader == null) {
+      _showMessage('Please log in again.');
       return;
     }
 
-    setState(() {
-      assignedTasks.insert(0, _titleController.text.trim());
-    });
+    if (assigneeId == null) {
+      _showMessage('Please select a team member.');
+      return;
+    }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Task added to this demo dashboard.')),
-    );
+    setState(() => isAssigning = true);
 
-    _titleController.clear();
-    _descriptionController.clear();
-    setState(() {
-      assignee = 'Select team member';
-      priority = 'Medium';
-      dueDate = null;
-    });
+    try {
+      final db = FirebaseFirestore.instance;
+
+      // Verify that the selected developer exists and belongs
+      // to the currently logged-in Team Leader.
+      final developerSnapshot = await db
+          .collection('users')
+          .doc(assigneeId)
+          .get();
+
+      if (!developerSnapshot.exists) {
+        throw Exception('Selected developer was not found.');
+      }
+
+      final developer = developerSnapshot.data()!;
+
+      if (developer['role'] != 'Developer' ||
+          developer['teamLeaderId'] != leader.uid) {
+        throw Exception(
+          'You can assign tasks only to developers in your team.',
+        );
+      }
+
+      // Get the actual team document ID.
+      final teamSnapshot = await db
+          .collection('teams')
+          .where('teamLeaderId', isEqualTo: leader.uid)
+          .limit(1)
+          .get();
+
+      if (teamSnapshot.docs.isEmpty) {
+        throw Exception(
+          'No team found. Please add members in Manage Team first.',
+        );
+      }
+
+      final teamId = teamSnapshot.docs.first.id;
+
+      // Create a persistent task document.
+      await db.collection('tasks').add({
+        'title': _titleController.text.trim(),
+        'description': _descriptionController.text.trim(),
+        'assignedTo': assigneeId,
+        'developerId': assigneeId,
+        'assignedBy': leader.uid,
+        'teamId': teamId,
+        'priority': priority,
+        'status': 'Assigned',
+        'dueDate': dueDate == null ? null : Timestamp.fromDate(dueDate!),
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+
+      setState(() {
+        _titleController.clear();
+        _descriptionController.clear();
+        assigneeId = null;
+        priority = 'Medium';
+        dueDate = null;
+      });
+
+      _showMessage('Task assigned successfully!');
+    } catch (e) {
+      _showMessage('Unable to assign task: $e');
+    } finally {
+      if (mounted) {
+        setState(() => isAssigning = false);
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final leader = FirebaseAuth.instance.currentUser;
+
+    if (leader == null) {
+      return const Text('Please log in to assign tasks.');
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -467,74 +543,138 @@ class _AssignTaskContentState extends State<AssignTaskContent> {
                   ),
                 ),
                 const SizedBox(height: 20),
+
                 _label('Task title'),
                 TextFormField(
                   controller: _titleController,
-                  validator: (value) =>
-                      value == null || value.trim().isEmpty
-                          ? 'Enter a task title'
-                          : null,
                   decoration: _inputDecoration('e.g. Build login screen'),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Enter a task title.';
+                    }
+                    return null;
+                  },
                 ),
+
                 const SizedBox(height: 17),
+
                 _label('Description'),
                 TextFormField(
                   controller: _descriptionController,
                   maxLines: 4,
                   decoration: _inputDecoration(
-                    'Describe the task, requirements and expected result',
+                    'Describe requirements and expected result',
                   ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Enter a task description.';
+                    }
+                    return null;
+                  },
                 ),
+
                 const SizedBox(height: 17),
+
+                _label('Assign to'),
+
+                // Dynamically load developers assigned to this leader.
+                StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: FirebaseFirestore.instance
+                      .collection('users')
+                      .where('teamLeaderId', isEqualTo: leader.uid)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return const Text(
+                        'Unable to load team members. Check Firestore rules.',
+                      );
+                    }
+
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+
+                    final developers = snapshot.data!.docs
+                        .where((doc) => doc.data()['role'] == 'Developer')
+                        .toList();
+
+                    if (developers.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Text(
+                          'No developers found in your team. '
+                          'Add members in Manage Team first.',
+                          style: TextStyle(color: tlMuted),
+                        ),
+                      );
+                    }
+
+                    final developerIds = developers
+                        .map((doc) => doc.id)
+                        .toSet();
+
+                    return DropdownButtonFormField<String>(
+                      value: developerIds.contains(assigneeId)
+                          ? assigneeId
+                          : null,
+                      isExpanded: true,
+                      decoration: _inputDecoration('Select team member'),
+                      items: developers.map((doc) {
+                        final data = doc.data();
+                        final name = (data['name'] ?? 'Developer').toString();
+                        final email = (data['email'] ?? '').toString();
+
+                        return DropdownMenuItem<String>(
+                          value: doc.id,
+                          child: Text(
+                            email.isEmpty ? name : '$name ($email)',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        setState(() => assigneeId = value);
+                      },
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please select a team member.';
+                        }
+                        return null;
+                      },
+                    );
+                  },
+                ),
+
+                const SizedBox(height: 17),
+
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    final narrow = constraints.maxWidth < 500;
-
-                    final memberField = Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _label('Assign to'),
-                        DropdownButtonFormField<String>(
-                          value: assignee,
-                          isExpanded: true,
-                          decoration: _inputDecoration(''),
-                          items: [
-                            'Select team member',
-                            'Aarav Sharma',
-                            'Ananya Patil',
-                            'Rohan Desai',
-                            'Priya Shah',
-                          ].map((name) {
-                            return DropdownMenuItem(
-                              value: name,
-                              child: Text(
-                                name,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            );
-                          }).toList(),
-                          onChanged: (value) {
-                            if (value != null) {
-                              setState(() => assignee = value);
-                            }
-                          },
-                        ),
-                      ],
-                    );
-
                     final priorityField = Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _label('Priority'),
                         DropdownButtonFormField<String>(
                           value: priority,
+                          isExpanded: true,
                           decoration: _inputDecoration(''),
-                          items: ['Low', 'Medium', 'High', 'Urgent']
-                              .map((value) => DropdownMenuItem(
-                                    value: value,
-                                    child: Text(value),
-                                  ))
-                              .toList(),
+                          items: const [
+                            DropdownMenuItem(value: 'Low', child: Text('Low')),
+                            DropdownMenuItem(
+                              value: 'Medium',
+                              child: Text('Medium'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'High',
+                              child: Text('High'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'Urgent',
+                              child: Text('Urgent'),
+                            ),
+                          ],
                           onChanged: (value) {
                             if (value != null) {
                               setState(() => priority = value);
@@ -544,12 +684,33 @@ class _AssignTaskContentState extends State<AssignTaskContent> {
                       ],
                     );
 
-                    if (narrow) {
+                    final dateField = Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _label('Due date'),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: _chooseDate,
+                            icon: const Icon(Icons.calendar_month_outlined),
+                            label: Text(
+                              dueDate == null
+                                  ? 'Choose a deadline'
+                                  : '${dueDate!.day}/'
+                                        '${dueDate!.month}/'
+                                        '${dueDate!.year}',
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+
+                    if (constraints.maxWidth < 500) {
                       return Column(
                         children: [
-                          memberField,
-                          const SizedBox(height: 16),
                           priorityField,
+                          const SizedBox(height: 16),
+                          dateField,
                         ],
                       );
                     }
@@ -557,48 +718,31 @@ class _AssignTaskContentState extends State<AssignTaskContent> {
                     return Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(child: memberField),
-                        const SizedBox(width: 16),
                         Expanded(child: priorityField),
+                        const SizedBox(width: 16),
+                        Expanded(child: dateField),
                       ],
                     );
                   },
                 ),
-                const SizedBox(height: 17),
-                _label('Due date'),
-                InkWell(
-                  onTap: _chooseDate,
-                  borderRadius: BorderRadius.circular(12),
-                  child: InputDecorator(
-                    decoration: _inputDecoration(''),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.calendar_month_outlined,
-                          size: 18,
-                          color: tlMuted,
-                        ),
-                        const SizedBox(width: 10),
-                        Text(
-                          dueDate == null
-                              ? 'Choose a deadline'
-                              : '${dueDate!.day}/${dueDate!.month}/${dueDate!.year}',
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: tlText,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+
                 const SizedBox(height: 24),
-                Align(
-                  alignment: Alignment.centerRight,
+
+                SizedBox(
+                  width: double.infinity,
                   child: FilledButton.icon(
-                    onPressed: _assignTask,
-                    icon: const Icon(Icons.add_task_rounded, size: 18),
-                    label: const Text('Assign Task'),
+                    onPressed: isAssigning ? null : _assignTask,
+                    icon: isAssigning
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.add_task_rounded),
+                    label: Text(isAssigning ? 'Assigning...' : 'Assign Task'),
                     style: FilledButton.styleFrom(
                       backgroundColor: tlText,
                       foregroundColor: Colors.white,
@@ -613,40 +757,132 @@ class _AssignTaskContentState extends State<AssignTaskContent> {
             ),
           ),
         ),
-        if (assignedTasks.isNotEmpty) ...[
-          const SizedBox(height: 20),
-          DashboardCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Tasks added in this session',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: tlText,
-                  ),
+
+        const SizedBox(height: 22),
+
+        const SectionHeading(
+          title: 'Assigned Tasks',
+          subtitle: 'View tasks assigned by you to your team members.',
+        ),
+
+        // Tasks are read from Firestore, so they remain after app restart.
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection('tasks')
+              .where('assignedBy', isEqualTo: leader.uid)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return const DashboardCard(
+                child: Text(
+                  'Unable to load tasks. Check your Firestore rules.',
                 ),
-                const SizedBox(height: 12),
-                ...assignedTasks.map(
-                  (task) => ListTile(
+              );
+            }
+
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            final tasks = snapshot.data!.docs.toList();
+
+            tasks.sort((a, b) {
+              final aTime = a.data()['createdAt'];
+              final bTime = b.data()['createdAt'];
+
+              final aDate = aTime is Timestamp
+                  ? aTime.toDate()
+                  : DateTime(2000);
+
+              final bDate = bTime is Timestamp
+                  ? bTime.toDate()
+                  : DateTime(2000);
+
+              return bDate.compareTo(aDate);
+            });
+
+            if (tasks.isEmpty) {
+              return const DashboardCard(
+                child: Text(
+                  'No tasks assigned yet.',
+                  style: TextStyle(color: tlMuted),
+                ),
+              );
+            }
+
+            return DashboardCard(
+              child: Column(
+                children: tasks.map((doc) {
+                  final task = doc.data();
+
+                  final title = (task['title'] ?? 'Untitled task').toString();
+                  final description = (task['description'] ?? '').toString();
+                  final status = (task['status'] ?? 'Assigned').toString();
+                  final taskPriority = (task['priority'] ?? 'Medium')
+                      .toString();
+                  final developerId = (task['assignedTo'] ?? '').toString();
+                  final due = task['dueDate'];
+
+                  final dueText = due is Timestamp
+                      ? '${due.toDate().day}/'
+                            '${due.toDate().month}/'
+                            '${due.toDate().year}'
+                      : 'No due date';
+
+                  return ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: const CircleAvatar(
                       backgroundColor: tlLilac,
-                      child: Icon(Icons.assignment, color: tlText),
+                      child: Icon(Icons.assignment_outlined, color: tlText),
                     ),
-                    title: Text(task),
-                    subtitle: Text('$assignee • $priority priority'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+                    title: Text(
+                      title,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: tlText,
+                      ),
+                    ),
+                    subtitle: Text('Status: $status • Priority: $taskPriority'),
+                    trailing: const Icon(Icons.chevron_right, color: tlMuted),
+                    onTap: () {
+                      showDialog<void>(
+                        context: context,
+                        builder: (dialogContext) {
+                          return AlertDialog(
+                            title: Text(title),
+                            content: SingleChildScrollView(
+                              child: Text(
+                                'Description: $description\n\n'
+                                'Developer ID: $developerId\n'
+                                'Priority: $taskPriority\n'
+                                'Status: $status\n'
+                                'Due date: $dueText',
+                              ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(dialogContext),
+                                child: const Text('Close'),
+                              ),
+                            ],
+                          );
+                        },
+                      );
+                    },
+                  );
+                }).toList(),
+              ),
+            );
+          },
+        ),
       ],
     );
   }
 }
+
+// ============================================================
+// EXISTING HELPER FUNCTIONS
+// ============================================================
 
 Widget _label(String text) {
   return Padding(
@@ -668,10 +904,7 @@ InputDecoration _inputDecoration(String hint) {
     hintStyle: const TextStyle(color: tlMuted, fontSize: 12),
     filled: true,
     fillColor: const Color(0xFFFCFBFE),
-    contentPadding: const EdgeInsets.symmetric(
-      horizontal: 14,
-      vertical: 14,
-    ),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
       borderSide: const BorderSide(color: Color(0xFFECEAF3)),
@@ -686,6 +919,10 @@ InputDecoration _inputDecoration(String hint) {
     ),
   );
 }
+
+// ============================================================
+// PROJECT SUMMARY
+// ============================================================
 
 class ProjectSummaryContent extends StatelessWidget {
   const ProjectSummaryContent({super.key});
@@ -715,21 +952,14 @@ class ProjectSummaryContent extends StatelessWidget {
                       ),
                     ),
                   ),
-                  Chip(
-                    label: Text('In progress'),
-                    backgroundColor: tlLilac,
-                  ),
+                  Chip(label: Text('In progress'), backgroundColor: tlLilac),
                 ],
               ),
               SizedBox(height: 12),
               Text(
                 'A workspace that helps new developers understand company '
                 'projects, complete assigned tasks and track their learning.',
-                style: TextStyle(
-                  height: 1.7,
-                  fontSize: 13,
-                  color: tlMuted,
-                ),
+                style: TextStyle(height: 1.7, fontSize: 13, color: tlMuted),
               ),
               SizedBox(height: 24),
               _SummaryLine(label: 'Team leader', value: 'You'),
@@ -743,6 +973,7 @@ class ProjectSummaryContent extends StatelessWidget {
         LayoutBuilder(
           builder: (context, constraints) {
             final count = constraints.maxWidth > 650 ? 3 : 1;
+
             return GridView.count(
               crossAxisCount: count,
               shrinkWrap: true,
@@ -813,6 +1044,10 @@ class _SummaryLine extends StatelessWidget {
   }
 }
 
+// ============================================================
+// PROJECT FILES
+// ============================================================
+
 class ProjectFilesContent extends StatelessWidget {
   const ProjectFilesContent({super.key});
 
@@ -820,9 +1055,17 @@ class ProjectFilesContent extends StatelessWidget {
   Widget build(BuildContext context) {
     const files = [
       ('README.md', 'Project documentation', Icons.description_outlined),
-      ('requirements.pdf', 'Project requirements', Icons.picture_as_pdf_outlined),
+      (
+        'requirements.pdf',
+        'Project requirements',
+        Icons.picture_as_pdf_outlined,
+      ),
       ('api_documentation.json', 'API reference', Icons.data_object_rounded),
-      ('ui_design.fig', 'UI/UX design reference', Icons.design_services_outlined),
+      (
+        'ui_design.fig',
+        'UI/UX design reference',
+        Icons.design_services_outlined,
+      ),
     ];
 
     return Column(
@@ -873,13 +1116,18 @@ class ProjectFilesContent extends StatelessWidget {
         ),
         const SizedBox(height: 15),
         const Text(
-          'These are sample file entries. Connect your storage service to display actual uploaded project files.',
+          'These are sample file entries. Connect your storage service '
+          'to display actual uploaded project files.',
           style: TextStyle(fontSize: 11, color: tlMuted),
         ),
       ],
     );
   }
 }
+
+// ============================================================
+// BUG TRACKER
+// ============================================================
 
 class ProjectBugsContent extends StatefulWidget {
   const ProjectBugsContent({super.key});
@@ -922,9 +1170,7 @@ class _ProjectBugsContentState extends State<ProjectBugsContent> {
               return Container(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: const BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(color: Color(0xFFF0EFF5)),
-                  ),
+                  border: Border(bottom: BorderSide(color: Color(0xFFF0EFF5))),
                 ),
                 child: Row(
                   children: [
@@ -961,13 +1207,15 @@ class _ProjectBugsContentState extends State<ProjectBugsContent> {
                       value: bug['status'],
                       underline: const SizedBox(),
                       items: ['Open', 'In progress', 'Resolved']
-                          .map((status) => DropdownMenuItem(
-                                value: status,
-                                child: Text(
-                                  status,
-                                  style: const TextStyle(fontSize: 11),
-                                ),
-                              ))
+                          .map(
+                            (status) => DropdownMenuItem(
+                              value: status,
+                              child: Text(
+                                status,
+                                style: const TextStyle(fontSize: 11),
+                              ),
+                            ),
+                          )
                           .toList(),
                       onChanged: (status) {
                         if (status != null) {
@@ -985,171 +1233,397 @@ class _ProjectBugsContentState extends State<ProjectBugsContent> {
     );
   }
 }
-
-class ScheduleContent extends StatelessWidget {
-  const ScheduleContent({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    const events = [
-      ('10:00 AM', 'Daily team stand-up', 'Team meeting', tlLilac),
-      ('12:30 PM', 'Review open bugs', 'Quality review', tlBlue),
-      ('03:00 PM', 'Project progress review', 'Project milestone', tlPink),
-      ('Tomorrow', 'Sprint planning', 'Planning session', tlPeriwinkle),
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SectionHeading(
-          title: 'Team Schedule',
-          subtitle: 'Keep meetings, reviews and deadlines organized.',
-        ),
-        const DashboardCard(
-          child: Row(
-            children: [
-              Icon(Icons.calendar_month_rounded, size: 34, color: tlText),
-              SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Your team calendar',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16,
-                        color: tlText,
-                      ),
-                    ),
-                    SizedBox(height: 5),
-                    Text(
-                      'Upcoming events and project milestones',
-                      style: TextStyle(fontSize: 11, color: tlMuted),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        DashboardCard(
-          child: Column(
-            children: events.map((event) {
-              return ListTile(
-                contentPadding: const EdgeInsets.symmetric(vertical: 6),
-                leading: Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    color: event.$4,
-                    borderRadius: BorderRadius.circular(13),
-                  ),
-                  child: const Icon(
-                    Icons.event_note_rounded,
-                    color: tlText,
-                  ),
-                ),
-                title: Text(
-                  event.$2,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: tlText,
-                  ),
-                ),
-                subtitle: Text(
-                  '${event.$1} • ${event.$3}',
-                  style: const TextStyle(fontSize: 11, color: tlMuted),
-                ),
-              );
-            }).toList(),
-          ),
-        ),
-      ],
-    );
-  }
-}
+// ============================================================
+// TEAM LEADER PROFILE
+// ============================================================
 
 class TeamLeaderProfileContent extends StatelessWidget {
   const TeamLeaderProfileContent({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SectionHeading(
-          title: 'Team Leader',
-          subtitle: 'Your workspace profile and responsibilities.',
-        ),
-        const DashboardCard(
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      return const SectionHeading(
+        title: 'Team Leader Profile',
+        subtitle: 'Please log in to view your profile.',
+      );
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (snapshot.hasError) {
+          return const Text('Unable to load your profile.');
+        }
+
+        final data = snapshot.data?.data() ?? {};
+
+        final name = (data['name'] as String?)?.trim();
+        final email = (data['email'] as String?)?.trim();
+        final role = (data['role'] as String?)?.trim();
+
+        final displayName =
+            (name == null || name.isEmpty)
+                ? (user.displayName ?? 'Team Leader')
+                : name;
+
+        final displayEmail =
+            (email == null || email.isEmpty)
+                ? (user.email ?? 'Email not available')
+                : email;
+
+        final displayRole =
+            (role == null || role.isEmpty)
+                ? 'Team Leader'
+                : role;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SectionHeading(
+              title: 'My Profile',
+              subtitle: 'Your registered account information.',
+            ),
+            const SizedBox(height: 16),
+            DashboardCard(
+              child: Column(
+                children: [
+                  CircleAvatar(
+                    radius: 45,
+                    backgroundColor: tlLilac,
+                    child: Text(
+                      displayName.isNotEmpty
+                          ? displayName[0].toUpperCase()
+                          : 'T',
+                      style: const TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        color: tlText,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    displayName,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: tlText,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    displayRole,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: tlMuted,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  const Divider(),
+                  _ProfileLine(
+                    icon: Icons.person_outline,
+                    title: displayName,
+                  ),
+                  _ProfileLine(
+                    icon: Icons.email_outlined,
+                    title: displayEmail,
+                  ),
+                  _ProfileLine(
+                    icon: Icons.work_outline,
+                    title: displayRole,
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.edit_outlined),
+                      label: const Text('Update Profile'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF8068CE),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 15,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () async {
+                        final result =
+                            await showDialog<Map<String, String>>(
+                          context: context,
+                          builder: (dialogContext) =>
+                              _EditTeamLeaderProfileDialog(
+                            initialName: displayName,
+                            initialEmail: displayEmail,
+                          ),
+                        );
+
+                        if (!context.mounted || result == null) {
+                          return;
+                        }
+
+                        final newName = result['name']!;
+                        final newEmail = result['email']!;
+
+                        final currentUser =
+                            FirebaseAuth.instance.currentUser;
+
+                        if (currentUser == null) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Please log in again.'),
+                            ),
+                          );
+                          return;
+                        }
+
+                        try {
+                          final oldEmail = currentUser.email ?? '';
+
+                          // Save the name in Firestore.
+                          await FirebaseFirestore.instance
+                              .collection('users')
+                              .doc(currentUser.uid)
+                              .update({
+                            'name': newName,
+                            'updatedAt': FieldValue.serverTimestamp(),
+                          });
+
+                          // Firebase requires email verification
+                          // before completing an email change.
+                          if (newEmail.toLowerCase() !=
+                              oldEmail.toLowerCase()) {
+                            await currentUser.verifyBeforeUpdateEmail(
+                              newEmail,
+                            );
+
+                            if (!context.mounted) return;
+
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Name updated. Check your new email '
+                                  'to verify the email change.',
+                                ),
+                              ),
+                            );
+                          } else {
+                            if (!context.mounted) return;
+
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Profile updated successfully!',
+                                ),
+                              ),
+                            );
+                          }
+                        } on FirebaseAuthException catch (e) {
+                          if (!context.mounted) return;
+
+                          final message =
+                              e.code == 'requires-recent-login'
+                                  ? 'Please log in again before changing '
+                                      'your email.'
+                                  : e.code == 'email-already-in-use'
+                                      ? 'This email is already in use.'
+                                      : 'Could not update email: '
+                                          '${e.message}';
+
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(message)),
+                          );
+                        } catch (e) {
+                          if (!context.mounted) return;
+
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Update failed: $e'),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+// ============================================================
+// UPDATE PROFILE DIALOG
+// Controllers are owned and disposed by this StatefulWidget.
+// ============================================================
+
+class _EditTeamLeaderProfileDialog extends StatefulWidget {
+  final String initialName;
+  final String initialEmail;
+
+  const _EditTeamLeaderProfileDialog({
+    required this.initialName,
+    required this.initialEmail,
+  });
+
+  @override
+  State<_EditTeamLeaderProfileDialog> createState() =>
+      _EditTeamLeaderProfileDialogState();
+}
+
+class _EditTeamLeaderProfileDialogState
+    extends State<_EditTeamLeaderProfileDialog> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _emailController;
+
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+
+  @override
+  void initState() {
+    super.initState();
+
+    _nameController = TextEditingController(
+      text: widget.initialName,
+    );
+
+    _emailController = TextEditingController(
+      text: widget.initialEmail,
+    );
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final form = _formKey.currentState;
+
+    if (form == null || !form.validate()) {
+      return;
+    }
+
+    Navigator.of(context).pop<Map<String, String>>({
+      'name': _nameController.text.trim(),
+      'email': _emailController.text.trim(),
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Update Profile'),
+      content: Form(
+        key: _formKey,
+        child: SingleChildScrollView(
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              CircleAvatar(
-                radius: 42,
-                backgroundColor: tlLilac,
-                child: Icon(Icons.person, size: 48, color: tlText),
-              ),
-              SizedBox(height: 15),
-              Text(
-                'Team Leader',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: tlText,
+              TextFormField(
+                controller: _nameController,
+                autofocus: true,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(
+                  labelText: 'Full Name',
+                  prefixIcon: Icon(Icons.person_outline),
                 ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Enter your name';
+                  }
+                  return null;
+                },
               ),
-              SizedBox(height: 5),
-              Text(
-                'Project coordination and delivery',
-                style: TextStyle(fontSize: 12, color: tlMuted),
-              ),
-              SizedBox(height: 25),
-              Divider(color: Color(0xFFF0EFF5)),
-              _ProfileLine(
-                icon: Icons.assignment_turned_in_outlined,
-                title: 'Assign and review tasks',
-              ),
-              _ProfileLine(
-                icon: Icons.groups_outlined,
-                title: 'Coordinate team members',
-              ),
-              _ProfileLine(
-                icon: Icons.bug_report_outlined,
-                title: 'Monitor bugs and blockers',
-              ),
-              _ProfileLine(
-                icon: Icons.timeline_rounded,
-                title: 'Track project milestones',
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Email Address',
+                  prefixIcon: Icon(Icons.email_outlined),
+                ),
+                validator: (value) {
+                  final email = value?.trim() ?? '';
+
+                  if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                      .hasMatch(email)) {
+                    return 'Enter a valid email';
+                  }
+
+                  return null;
+                },
               ),
             ],
           ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _save,
+          child: const Text('Save Changes'),
         ),
       ],
     );
   }
 }
 
+// ============================================================
+// PROFILE INFORMATION ROW
+// ============================================================
+
 class _ProfileLine extends StatelessWidget {
   final IconData icon;
   final String title;
 
-  const _ProfileLine({required this.icon, required this.title});
+  const _ProfileLine({
+    required this.icon,
+    required this.title,
+  });
 
   @override
   Widget build(BuildContext context) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      leading: Icon(icon, color: const Color(0xFF8068CE)),
+      leading: Icon(
+        icon,
+        color: const Color(0xFF8068CE),
+      ),
       title: Text(
         title,
-        style: const TextStyle(fontSize: 12, color: tlText),
+        style: const TextStyle(
+          fontSize: 12,
+          color: tlText,
+        ),
       ),
     );
   }
 }
+
+
+// ============================================================
+// TEAM MEMBERS
+// ============================================================
 
 class TeamMembersContent extends StatelessWidget {
   const TeamMembersContent({super.key});
@@ -1175,8 +1649,8 @@ class TeamMembersContent extends StatelessWidget {
             final count = constraints.maxWidth > 900
                 ? 3
                 : constraints.maxWidth > 550
-                    ? 2
-                    : 1;
+                ? 2
+                : 1;
 
             return GridView.count(
               crossAxisCount: count,
@@ -1216,10 +1690,7 @@ class TeamMembersContent extends StatelessWidget {
                       Text(
                         member.$2,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: tlMuted,
-                          fontSize: 11,
-                        ),
+                        style: const TextStyle(color: tlMuted, fontSize: 11),
                       ),
                     ],
                   ),

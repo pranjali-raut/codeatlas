@@ -4,6 +4,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'developer_theme.dart';
 import 'project_files_page.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'team_members_page.dart';
+import 'manage_team_page.dart';
+import 'my_team_page.dart';
 
 const Color tlPink = Color(0xFFFFD6FF);
 const Color tlLilac = Color(0xFFE7C6FF);
@@ -18,123 +21,112 @@ class TeamLeaderDashboard extends StatefulWidget {
   const TeamLeaderDashboard({super.key});
 
   @override
-  State<TeamLeaderDashboard> createState() =>
-      _TeamLeaderDashboardState();
+  State<TeamLeaderDashboard> createState() => _TeamLeaderDashboardState();
 }
+final GlobalKey<ScaffoldState> _scaffoldKey =
+    GlobalKey<ScaffoldState>();
 
 class _TeamLeaderDashboardState extends State<TeamLeaderDashboard> {
-  String selectedPage = 'Progress';
+  String selectedPage = 'Summary';
   bool projectExpanded = true;
 
- 
-void navigateTo(String page) {
-  if (page == 'Files') {
-    _openProjectFiles();
-    return;
-  }
-
-  setState(() => selectedPage = page);
-}
-
-
-Future<void> _openProjectFiles() async {
-  final user = FirebaseAuth.instance.currentUser;
-
-  if (user == null) {
-    return;
-  }
-
-  try {
-    final snapshot = await FirebaseFirestore.instance
-        .collection('projects')
-        .where('teamLeaderId', isEqualTo: user.uid)
-        .get();
-
-    if (!mounted) return;
-
-    if (snapshot.docs.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No projects are assigned to you yet.'),
-        ),
-      );
+  void navigateTo(String page) {
+    if (page == 'Files') {
+      _openProjectFiles();
       return;
     }
 
-    final selectedProject =
-        await showDialog<QueryDocumentSnapshot<Map<String, dynamic>>>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Select a project'),
-          content: SizedBox(
-            width: 400,
-            child: ListView(
-              shrinkWrap: true,
-              children: snapshot.docs.map((projectDocument) {
-                final projectData = projectDocument.data();
-                final projectName =
-                    projectData['name'] as String? ?? 'Unnamed project';
+    setState(() => selectedPage = page);
+  }
 
-                return ListTile(
-                  leading: const Icon(Icons.folder_outlined),
-                  title: Text(projectName),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    Navigator.pop(dialogContext, projectDocument);
-                  },
-                );
-              }).toList(),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-          ],
+  Future<void> _openProjectFiles() async {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      return;
+    }
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('projects')
+          .where('teamLeaderId', isEqualTo: user.uid)
+          .get();
+
+      if (!mounted) return;
+
+      if (snapshot.docs.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No projects are assigned to you yet.')),
         );
-      },
-    );
+        return;
+      }
 
-    if (!mounted || selectedProject == null) return;
+      final selectedProject =
+          await showDialog<QueryDocumentSnapshot<Map<String, dynamic>>>(
+            context: context,
+            builder: (dialogContext) {
+              return AlertDialog(
+                title: const Text('Select a project'),
+                content: SizedBox(
+                  width: 400,
+                  child: ListView(
+                    shrinkWrap: true,
+                    children: snapshot.docs.map((projectDocument) {
+                      final projectData = projectDocument.data();
+                      final projectName =
+                          projectData['name'] as String? ?? 'Unnamed project';
 
-    final projectData = selectedProject.data();
+                      return ListTile(
+                        leading: const Icon(Icons.folder_outlined),
+                        title: Text(projectName),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () {
+                          Navigator.pop(dialogContext, projectDocument);
+                        },
+                      );
+                    }).toList(),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Cancel'),
+                  ),
+                ],
+              );
+            },
+          );
 
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ProjectFilesPage(
-          projectId: selectedProject.id,
-          projectName:
-              projectData['name'] as String? ?? 'Project Files',
+      if (!mounted || selectedProject == null) return;
+
+      final projectData = selectedProject.data();
+
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ProjectFilesPage(
+            projectId: selectedProject.id,
+            projectName: projectData['name'] as String? ?? 'Project Files',
+          ),
         ),
-      ),
-    );
-  } catch (e) {
-    if (!mounted) return;
+      );
+    } catch (e) {
+      if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Could not load projects: $e'),
-      ),
-    );
-  }
-}
-
-
-
- Future <void> logout() async{
-      await FirebaseAuth.instance.signOut();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not load projects: $e')));
+    }
   }
 
- Future <void> logout() async{
-      await FirebaseAuth.instance.signOut();
+  Future<void> logout() async {
+    await FirebaseAuth.instance.signOut();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+        key: _scaffoldKey,
       backgroundColor: tlBackground,
       body: LayoutBuilder(
         builder: (context, constraints) {
@@ -148,10 +140,17 @@ Future<void> _openProjectFiles() async {
                   children: [
                     _buildHeader(isMobile),
                     Expanded(
-                      child: TeamLeaderPageContent(
-                        page: selectedPage,
-                        onNavigate: navigateTo,
-                      ),
+                      child: switch (selectedPage) {
+                        'Team Members' => const TeamMembersPage(),
+                        'Manage Team' => ManageTeamPage(
+                          onSaved: () => navigateTo('Team Members'),
+                        ),
+                        'My Team' => const MyTeamPage(),
+                        _ => TeamLeaderPageContent(
+                          page: selectedPage,
+                          onNavigate: navigateTo,
+                        ),
+                      },
                     ),
                   ],
                 ),
@@ -160,7 +159,11 @@ Future<void> _openProjectFiles() async {
           );
         },
       ),
-      drawer: null,
+      drawer: Drawer(
+  child: SafeArea(
+    child: _buildSidebar(),
+  ),
+),
     );
   }
 
@@ -169,25 +172,20 @@ Future<void> _openProjectFiles() async {
       width: 258,
       color: Colors.white,
       padding: const EdgeInsets.fromLTRB(18, 25, 14, 18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+  child: SingleChildScrollView(
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
           Row(
             children: [
               Container(
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [tlPurple, tlBlue],
-                  ),
+                  gradient: const LinearGradient(colors: [tlPurple, tlBlue]),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: const Icon(
-                            Icons.code_rounded,
-                            color: devText,
-                            size: 25,
-                          ),
+                child: const Icon(Icons.code_rounded, color: devText, size: 25),
               ),
               const SizedBox(width: 11),
               const Expanded(
@@ -228,18 +226,15 @@ Future<void> _openProjectFiles() async {
               ),
             ),
           ),
-          _navItem(
-            'Assign Task',
-            Icons.add_task_rounded,
-          ),
+          _navItem('Assign Task', Icons.add_task_rounded),
           const SizedBox(height: 5),
           _projectMenu(),
           const SizedBox(height: 5),
-          _navItem('Schedule', Icons.calendar_month_rounded),
           _navItem('Team Leader', Icons.manage_accounts_rounded),
-          _navItem('Progress', Icons.trending_up_rounded),
           _navItem('Team Members', Icons.groups_rounded),
-          const Spacer(),
+          _navItem('Manage Team', Icons.group_add_rounded),
+          _navItem('My Team', Icons.groups_rounded),
+          const SizedBox(height: 20),
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
@@ -266,11 +261,7 @@ Future<void> _openProjectFiles() async {
                 SizedBox(height: 5),
                 Text(
                   'Assign tasks, track blockers and celebrate progress.',
-                  style: TextStyle(
-                    fontSize: 11,
-                    height: 1.5,
-                    color: tlText,
-                  ),
+                  style: TextStyle(fontSize: 11, height: 1.5, color: tlText),
                 ),
               ],
             ),
@@ -295,22 +286,16 @@ Future<void> _openProjectFiles() async {
               'Project workspace',
               style: TextStyle(fontSize: 10, color: tlMuted),
             ),
-            trailing: const Icon(
-              Icons.more_horiz,
-              color: tlMuted,
-            ),
+            trailing: const Icon(Icons.more_horiz, color: tlMuted),
           ),
         ],
       ),
+    ),
     );
   }
 
   Widget _projectMenu() {
-    final projectSelected = [
-      'Summary',
-      'Files',
-      'Bugs',
-    ].contains(selectedPage);
+    final projectSelected = ['Summary', 'Files'].contains(selectedPage);
 
     return Column(
       children: [
@@ -325,10 +310,7 @@ Future<void> _openProjectFiles() async {
             });
           },
           child: Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 13,
-              vertical: 13,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 13),
             decoration: BoxDecoration(
               color: projectSelected
                   ? const Color(0xFFF2EEFF)
@@ -373,7 +355,6 @@ Future<void> _openProjectFiles() async {
               children: [
                 _subNavItem('Summary', Icons.dashboard_outlined),
                 _subNavItem('Files', Icons.folder_open_outlined),
-                _subNavItem('Bugs', Icons.bug_report_outlined),
               ],
             ),
           ),
@@ -389,10 +370,7 @@ Future<void> _openProjectFiles() async {
       onTap: () => navigateTo(title),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(
-          horizontal: 10,
-          vertical: 10,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         margin: const EdgeInsets.only(bottom: 3),
         decoration: BoxDecoration(
           color: active ? const Color(0xFFF6F2FF) : Colors.transparent,
@@ -428,10 +406,7 @@ Future<void> _openProjectFiles() async {
       onTap: () => navigateTo(title),
       child: Container(
         margin: const EdgeInsets.only(bottom: 5),
-        padding: const EdgeInsets.symmetric(
-          horizontal: 13,
-          vertical: 13,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 13),
         decoration: BoxDecoration(
           color: active ? const Color(0xFFF2EEFF) : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
@@ -475,14 +450,16 @@ Future<void> _openProjectFiles() async {
       padding: EdgeInsets.symmetric(horizontal: isMobile ? 18 : 30),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-          bottom: BorderSide(color: Color(0xFFF0EFF5)),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0xFFF0EFF5))),
       ),
       child: Row(
         children: [
           if (isMobile)
-            const Icon(Icons.menu_rounded, color: tlText),
+  IconButton(
+    icon: const Icon(Icons.menu_rounded, color: tlText),
+    onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+    tooltip: 'Open menu',
+  ),
           if (isMobile) const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -512,10 +489,7 @@ Future<void> _openProjectFiles() async {
               color: tlBackground,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(
-              Icons.notifications_none_rounded,
-              color: tlText,
-            ),
+            child: const Icon(Icons.notifications_none_rounded, color: tlText),
           ),
           const SizedBox(width: 13),
           Container(
@@ -523,16 +497,19 @@ Future<void> _openProjectFiles() async {
             height: 39,
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Color.fromRGBO(231, 198, 255, 1), Color.fromRGBO(187, 208, 255, 1)],
+                colors: [
+                  Color.fromRGBO(231, 198, 255, 1),
+                  Color.fromRGBO(187, 208, 255, 1),
+                ],
               ),
               borderRadius: BorderRadius.circular(13),
             ),
             child: IconButton(
-                   icon: const Icon(Icons.logout),
-                   color: const Color(0xFF7653B6),
-                   tooltip: 'Sign Out',
-                   onPressed: logout
-              )
+              icon: const Icon(Icons.logout),
+              color: const Color(0xFF7653B6),
+              tooltip: 'Sign Out',
+              onPressed: logout,
+            ),
           ),
         ],
       ),
