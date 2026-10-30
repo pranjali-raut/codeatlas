@@ -6,6 +6,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'chatbot_screen.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'team_leader_dashboard.dart';
+import 'team_leader_content.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class DeveloperPageContent extends StatefulWidget {
   final String page;
@@ -54,7 +57,7 @@ class _DeveloperPageContentState extends State<DeveloperPageContent> {
   Widget build(BuildContext context) {
     switch (widget.page) {
       case 'Summary':
-        return summaryPage();
+        return ProjectSummaryContent();
       case 'Files':
         return filesPage();
       case 'Assigned':
@@ -70,7 +73,7 @@ class _DeveloperPageContentState extends State<DeveloperPageContent> {
       case 'My Profile':
         return profilePage();
       default:
-        return summaryPage();
+        return ProjectSummaryContent();
     }
   }
 
@@ -165,48 +168,7 @@ class _DeveloperPageContentState extends State<DeveloperPageContent> {
     );
   }
 
-  Widget summaryPage() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        heading(
-          'Project Summary',
-          'Understand the project you are working on.',
-        ),
-        panel(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'CodeAtlas — Project Learning and Management',
-                style: TextStyle(
-                  color: devText,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'A workspace for managing project requirements, tasks, files, bugs, and team collaboration.',
-                style: TextStyle(color: devMuted, height: 1.6),
-              ),
-              const Divider(height: 32),
-              const Text(
-                'Project Details',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-              const SizedBox(height: 14),
-              detailRow('Project Manager', 'Project Admin'),
-              detailRow('Team Leader', 'Team Leader'),
-              detailRow('Your Role', 'Developer'),
-              detailRow('Status', 'In Progress'),
-              detailRow('Technology', 'Flutter / Dart'),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
+  
 
   Widget detailRow(String label, String value) {
     return Padding(
@@ -976,3 +938,255 @@ Future<void> sendChat() async {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 }
+
+
+
+Widget ProjectSummaryContent(){
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      return const Text('Please log in to view your projects.');
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeading(
+          title: 'Project Summary',
+          subtitle: 'View projects assigned to you by the Admin.',
+        ),
+
+        StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection('projects')
+              .where('developerIds', isEqualTo: user.uid)
+              .snapshots(),
+
+          builder: (context, snapshot) {
+            if (snapshot.hasError) {
+              return DashboardCard(
+                child: Text(
+                  'Unable to load projects: ${snapshot.error}',
+                ),
+              );
+            }
+
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(
+                child: CircularProgressIndicator(),
+              );
+            }
+
+            final projects = snapshot.data?.docs ?? [];
+
+            if (projects.isEmpty) {
+              return const DashboardCard(
+                child: Column(
+                  children: [
+                    Icon(
+                      Icons.folder_open_rounded,
+                      size: 45,
+                      color: tlMuted,
+                    ),
+                    SizedBox(height: 12),
+                    Text(
+                      'No projects assigned yet.',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: tlText,
+                      ),
+                    ),
+                    SizedBox(height: 5),
+                    Text(
+                      'Projects assigned by the Admin will appear here.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: tlMuted),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return Column(
+              children: projects.map((projectDocument) {
+                final data = projectDocument.data();
+
+                final name =
+                    (data['name'] ?? 'Unnamed Project').toString();
+
+                final description =
+                    (data['description'] ?? 'No description available')
+                        .toString();
+
+                final repositoryUrl =
+                    (data['repositoryUrl'] ?? '').toString();
+
+                final status =
+                    (data['status'] ?? 'Active').toString();
+
+                final createdAt = data['createdAt'];
+
+                String createdDate = 'Not available';
+
+                if (createdAt is Timestamp) {
+                  final date = createdAt.toDate();
+                  createdDate =
+                      '${date.day}/${date.month}/${date.year}';
+                }
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 18),
+                  child: DashboardCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Project name and status
+                        Row(
+                          children: [
+                            const CircleAvatar(
+                              backgroundColor: tlLilac,
+                              child: Icon(
+                                Icons.folder_rounded,
+                                color: tlText,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                name,
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: tlText,
+                                ),
+                              ),
+                            ),
+                            Chip(
+                              label: Text(status),
+                              backgroundColor: tlLilac,
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 20),
+
+                        // Project description
+                        const Text(
+                          'Project Description',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: tlText,
+                          ),
+                        ),
+                        const SizedBox(height: 7),
+                        Text(
+                          description,
+                          style: const TextStyle(
+                            height: 1.6,
+                            fontSize: 13,
+                            color: tlMuted,
+                          ),
+                        ),
+
+                        const SizedBox(height: 20),
+                        const Divider(color: Color(0xFFF0EFF5)),
+
+                        // GitHub repository
+                        const SizedBox(height: 12),
+                        const Row(
+                          children: [
+                            Icon(
+                              Icons.code_rounded,
+                              color: tlPurple,
+                              size: 20,
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'GitHub Repository',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: tlText,
+                              ),
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 8),
+
+                        if (repositoryUrl.isNotEmpty)
+                          InkWell(
+                            onTap: () async {
+                              final uri = Uri.tryParse(repositoryUrl);
+
+                              if (uri != null &&
+                                  (uri.scheme == 'https' ||
+                                      uri.scheme == 'http') &&
+                                  uri.host.isNotEmpty) {
+                                await launchUrl(
+                                  uri,
+                                  mode: LaunchMode.externalApplication,
+                                );
+                              } else {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Invalid repository URL'),
+                                  ),
+                                );
+                              }
+                            },
+                            child: Text(
+                              repositoryUrl,
+                              style: const TextStyle(
+                                color: Color(0xFF7653B6),
+                                fontSize: 13,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
+                          )
+                        else
+                          const Text(
+                            'No repository URL provided.',
+                            style: TextStyle(color: tlMuted),
+                          ),
+
+                        const SizedBox(height: 18),
+
+                        // Additional project details
+                        const Divider(color: Color(0xFFF0EFF5)),
+
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 9),
+                          child: Row(
+                            children: [
+                              const Expanded(
+                                child: Text(
+                                  'Created on',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: tlMuted,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                createdDate,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: tlText,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
