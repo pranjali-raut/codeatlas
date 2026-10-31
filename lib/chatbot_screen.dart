@@ -1,8 +1,8 @@
-
 import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class ChatbotScreen extends StatefulWidget {
   const ChatbotScreen({super.key});
@@ -12,364 +12,280 @@ class ChatbotScreen extends StatefulWidget {
 }
 
 class _ChatbotScreenState extends State<ChatbotScreen> {
-  final TextEditingController _controller = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
+  final TextEditingController messageController =
+      TextEditingController();
 
-  final List<Map<String, String>> _messages = [];
+  final ScrollController scrollController =
+      ScrollController();
 
-  bool _isLoading = false;
+  final List<Map<String, String>> messages = [
+    {
+      "role": "bot",
+      "text":
+          "Hello! I am CodeAtlas AI Assistant.\n\n"
+          "I can help you with:\n"
+          "1. Resolving coding errors\n"
+          "2. Understanding Flutter and Dart\n"
+          "3. Explaining CodeAtlas features\n"
+          "4. Understanding project architecture\n\n"
+          "How can I help you today?"
+    }
+  ];
 
-  // Flutter Web running in Chrome.
-  static const String _apiUrl = 'http://localhost:3000/api/chat';
+  bool isLoading = false;
 
-  Future<void> _sendMessage() async {
-    final message = _controller.text.trim();
+  // Android emulator backend URL
+final String apiUrl = "http://127.0.0.1:3000/api/chat";
 
-    if (message.isEmpty || _isLoading) return;
+  Future<void> sendMessage() async {
+    final question = messageController.text.trim();
+
+    if (question.isEmpty || isLoading) return;
 
     setState(() {
-      _messages.add({'role': 'user', 'text': message});
-      _isLoading = true;
+      messages.add({
+        "role": "user",
+        "text": question
+      });
+
+      isLoading = true;
+      messageController.clear();
     });
 
-    _controller.clear();
-    _scrollToBottom();
+    scrollToBottom();
 
     try {
       final response = await http
           .post(
-            Uri.parse(_apiUrl),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'message': message}),
+            Uri.parse(apiUrl),
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: jsonEncode({
+              "message": question
+            }),
           )
-         .timeout(const Duration(seconds: 120));
+          .timeout(const Duration(seconds: 45));
 
-      final dynamic result = jsonDecode(response.body);
+      final data = jsonDecode(response.body);
 
-      if (response.statusCode != 200) {
-        throw Exception(
-          result is Map
-              ? result['error'] ?? 'HTTP ${response.statusCode}'
-              : 'HTTP ${response.statusCode}',
-        );
-      }
-
-      if (result is! Map) {
-        throw Exception('Invalid response from the backend.');
-      }
-
-      final answer = result['reply'] ?? result['answer'];
-
-      if (answer == null || answer.toString().trim().isEmpty) {
-        throw Exception('No answer was returned by the AI.');
-      }
-
-      if (!mounted) return;
-
-      setState(() {
-        _messages.add({
-          'role': 'ai',
-          'text': answer.toString(),
+      if (response.statusCode == 200) {
+        setState(() {
+          messages.add({
+            "role": "bot",
+            "text": data["reply"] ??
+                "No response received."
+          });
         });
-      });
+      } else {
+        setState(() {
+          messages.add({
+            "role": "bot",
+            "text": "Server Error: ${data["error"] ?? response.body}"
+          });
+        });
+      }
     } catch (e) {
-      if (!mounted) return;
-
       setState(() {
-        _messages.add({
-          'role': 'ai',
-          'text': 'Unable to connect to CodeAtlas AI.\n\n$e',
+        messages.add({
+          "role": "bot",
+          "text":
+              "Unable to connect to CodeAtlas AI.\n\n"
+              "Error: $e\n\n"
+              "Check that your backend is running on port 3000."
         });
       });
     } finally {
       if (mounted) {
-        setState(() => _isLoading = false);
-        _scrollToBottom();
+        setState(() {
+          isLoading = false;
+        });
+        scrollToBottom();
       }
     }
   }
 
-  void _scrollToBottom() {
+  void scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 250),
+      if (scrollController.hasClients) {
+        scrollController.animateTo(
+          scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
           curve: Curves.easeOut,
         );
       }
     });
   }
 
-  void _askSuggestion(String text) {
-    _controller.text = text;
-    _sendMessage();
+  Widget buildMessage(Map<String, String> message) {
+    final isUser = message["role"] == "user";
+
+    return Align(
+      alignment: isUser
+          ? Alignment.centerRight
+          : Alignment.centerLeft,
+      child: Container(
+        constraints: const BoxConstraints(
+          maxWidth: 310,
+        ),
+        margin: const EdgeInsets.symmetric(
+          vertical: 7,
+          horizontal: 12,
+        ),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isUser
+              ? const Color(0xFF6C63FF)
+              : const Color(0xFFF0EDFF),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: MarkdownBody(
+  data: message["text"] ?? "",
+  selectable: true,
+  styleSheet: MarkdownStyleSheet(
+    p: GoogleFonts.inter(
+      fontSize: 14,
+      color: isUser ? Colors.white : const Color(0xFF292743),
+      height: 1.6,
+    ),
+    h1: GoogleFonts.inter(
+      fontSize: 21,
+      fontWeight: FontWeight.bold,
+    ),
+    h2: GoogleFonts.inter(
+      fontSize: 18,
+      fontWeight: FontWeight.bold,
+    ),
+    h3: GoogleFonts.inter(
+      fontSize: 16,
+      fontWeight: FontWeight.w600,
+    ),
+    code: GoogleFonts.robotoMono(
+      fontSize: 13,
+      color: const Color(0xFF6C63FF),
+    ),
+    codeblockDecoration: BoxDecoration(
+      color: const Color(0xFF242436),
+      borderRadius: BorderRadius.circular(10),
+    ),
+    blockquoteDecoration: BoxDecoration(
+      color: const Color(0xFFECE8FF),
+      borderRadius: BorderRadius.circular(8),
+    ),
+  ),
+)
+      ),
+    );
   }
 
   @override
   void dispose() {
-    _controller.dispose();
-    _scrollController.dispose();
+    messageController.dispose();
+    scrollController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    // IMPORTANT: No Scaffold here because the dashboard already
-    // provides its own page header and layout.
-    return Container(
-      color: const Color(0xFFF8F7FC),
-      child: Column(
-        children: [
-          // Chatbot introduction.
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(22),
-            color: Colors.white,
-            child: const Row(
-              children: [
-                CircleAvatar(
-                  radius: 25,
-                  backgroundColor: Color(0xFFE7C6FF),
-                  child: Icon(
-                    Icons.smart_toy_outlined,
-                    color: Color(0xFF292743),
-                    size: 27,
-                  ),
-                ),
-                SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'CodeAtlas AI Assistant',
-                        style: TextStyle(
-                          fontSize: 19,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF292743),
-                        ),
-                      ),
-                      SizedBox(height: 5),
-                      Text(
-                        'Ask about your project, Flutter, or code errors.',
-                        style: TextStyle(
-                          color: Color(0xFF85849A),
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+    return Scaffold(
+      backgroundColor: const Color(0xFFFCFAFF),
+
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 1,
+        title: const Row(
+          children: [
+            Icon(
+              Icons.smart_toy,
+              color: Color(0xFF6C63FF),
             ),
-          ),
-
-          // Conversation area.
-          Expanded(
-            child: _messages.isEmpty
-                ? Center(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.forum_outlined,
-                            size: 62,
-                            color: Color(0xFFB8C0FF),
-                          ),
-                          const SizedBox(height: 18),
-                          const Text(
-                            'How can I help you today?',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 23,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF292743),
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          const Text(
-                            'Ask a question or select a suggestion below.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Color(0xFF85849A),
-                            ),
-                          ),
-                          const SizedBox(height: 22),
-                          Wrap(
-                            alignment: WrapAlignment.center,
-                            spacing: 10,
-                            runSpacing: 10,
-                            children: [
-                              ActionChip(
-                                avatar: const Icon(
-                                  Icons.info_outline,
-                                  size: 18,
-                                ),
-                                label: const Text('What is CodeAtlas?'),
-                                onPressed: _isLoading
-                                    ? null
-                                    : () => _askSuggestion(
-                                          'What is CodeAtlas?',
-                                        ),
-                              ),
-                              ActionChip(
-                                avatar: const Icon(
-                                  Icons.bug_report_outlined,
-                                  size: 18,
-                                ),
-                                label: const Text('Fix a Flutter error'),
-                                onPressed: _isLoading
-                                    ? null
-                                    : () => _askSuggestion(
-                                          'How do I debug a Flutter error?',
-                                        ),
-                              ),
-                              ActionChip(
-                                avatar: const Icon(
-                                  Icons.account_tree_outlined,
-                                  size: 18,
-                                ),
-                                label: const Text('Explain architecture'),
-                                onPressed: _isLoading
-                                    ? null
-                                    : () => _askSuggestion(
-                                          'Explain CodeAtlas architecture.',
-                                        ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                : ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.all(22),
-                    itemCount: _messages.length + (_isLoading ? 1 : 0),
-                    itemBuilder: (context, index) {
-                      if (_isLoading && index == _messages.length) {
-                        return const Align(
-                          alignment: Alignment.centerLeft,
-                          child: Padding(
-                            padding: EdgeInsets.all(12),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                ),
-                                SizedBox(width: 10),
-                                Text('AI is thinking...'),
-                              ],
-                            ),
-                          ),
-                        );
-                      }
-
-                      final item = _messages[index];
-                      final isUser = item['role'] == 'user';
-
-                      return Align(
-                        alignment: isUser
-                            ? Alignment.centerRight
-                            : Alignment.centerLeft,
-                        child: Container(
-                          constraints: BoxConstraints(
-                            maxWidth:
-                                MediaQuery.of(context).size.width * 0.65,
-                          ),
-                          margin: const EdgeInsets.only(bottom: 14),
-                          padding: const EdgeInsets.all(15),
-                          decoration: BoxDecoration(
-                            color: isUser
-                                ? const Color(0xFFDCDFFF)
-                                : Colors.white,
-                            border: Border.all(
-                              color: const Color(0xFFEAE7F2),
-                            ),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: SelectableText(
-                            item['text'] ?? '',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              height: 1.5,
-                              color: Color(0xFF292743),
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-
-          // Input area.
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              border: Border(
-                top: BorderSide(color: Color(0xFFEAE7F2)),
+            SizedBox(width: 10),
+            Text(
+              "CodeAtlas AI",
+              style: TextStyle(
+                color: Color(0xFF292743),
+                fontWeight: FontWeight.bold,
               ),
             ),
-            child: SafeArea(
-              top: false,
+          ],
+        ),
+      ),
+
+      body: Column(
+        children: [
+          Expanded(
+            child: ListView.builder(
+              controller: scrollController,
+              padding: const EdgeInsets.symmetric(
+                vertical: 12,
+              ),
+              itemCount: messages.length,
+              itemBuilder: (context, index) {
+                return buildMessage(messages[index]);
+              },
+            ),
+          ),
+
+          if (isLoading)
+            const Padding(
+              padding: EdgeInsets.all(12),
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  SizedBox(
+                    height: 18,
+                    width: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                    ),
+                  ),
+                  SizedBox(width: 12),
+                  Text("CodeAtlas AI is thinking..."),
+                ],
+              ),
+            ),
+
+          Container(
+            padding: const EdgeInsets.all(12),
+            color: Colors.white,
+            child: SafeArea(
+              child: Row(
                 children: [
                   Expanded(
                     child: TextField(
-                      controller: _controller,
-                      enabled: !_isLoading,
+                      controller: messageController,
                       minLines: 1,
                       maxLines: 4,
-                      onSubmitted: (_) => _sendMessage(),
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => sendMessage(),
                       decoration: InputDecoration(
-                        hintText: 'Ask CodeAtlas AI...',
+                        hintText:
+                            "Ask about code or CodeAtlas...",
                         filled: true,
-                        fillColor: const Color(0xFFF8F7FC),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 14,
-                        ),
+                        fillColor: const Color(0xFFF5F3FA),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(18),
-                          borderSide: const BorderSide(
-                            color: Color(0xFFEAE7F2),
-                          ),
+                          borderRadius:
+                              BorderRadius.circular(25),
+                          borderSide: BorderSide.none,
                         ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(18),
-                          borderSide: const BorderSide(
-                            color: Color(0xFFEAE7F2),
-                          ),
+                        contentPadding:
+                            const EdgeInsets.symmetric(
+                          horizontal: 18,
+                          vertical: 12,
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  IconButton.filled(
-                    onPressed: _isLoading ? null : _sendMessage,
-                    icon: const Icon(Icons.send_rounded),
-                    style: IconButton.styleFrom(
-                      backgroundColor: const Color(0xFFB8C0FF),
-                      foregroundColor: const Color(0xFF292743),
-                    ),
-                  ),
-                  const SizedBox(width: 6),
+
+                  const SizedBox(width: 8),
+
                   IconButton(
-                    tooltip: 'Clear conversation',
-                    onPressed: _isLoading
-                        ? null
-                        : () => setState(() => _messages.clear()),
-                    icon: const Icon(Icons.delete_outline),
+                    onPressed:
+                        isLoading ? null : sendMessage,
+                    icon: const Icon(
+                      Icons.send,
+                      color: Color(0xFF6C63FF),
+                      size: 28,
+                    ),
                   ),
                 ],
               ),

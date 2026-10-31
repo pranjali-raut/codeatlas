@@ -65,7 +65,7 @@ class _DeveloperPageContentState extends State<DeveloperPageContent> {
       case 'Completed':
         return taskPage(completed: true);
       case 'Chatbot':
-  return const SizedBox.shrink();
+  return ChatbotScreen();
       case 'Repo':
         return gitPage(branch: false);
       case 'Branch':
