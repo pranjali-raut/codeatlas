@@ -27,6 +27,9 @@ class _ManageTeamPageState extends State<ManageTeamPage> {
   }
 
 
+
+
+
 Future<void> _saveMembers(
   List<QueryDocumentSnapshot<Map<String, dynamic>>> developers,
 ) async {
@@ -45,10 +48,16 @@ Future<void> _saveMembers(
   setState(() => _saving = true);
 
   try {
-    final teamRef = _db.collection('teams').doc(leader.uid);
+    // Find all projects assigned to this Team Leader.
+    final projectSnapshot = await _db
+        .collection('projects')
+        .where('teamLeaderId', isEqualTo: leader.uid)
+        .get();
 
+    final teamRef = _db.collection('teams').doc(leader.uid);
     final batch = _db.batch();
 
+    // Update Developer documents.
     for (final developer in developers) {
       final data = developer.data();
       final currentLeaderId = data['teamLeaderId'] as String?;
@@ -74,7 +83,7 @@ Future<void> _saveMembers(
       }
     }
 
-    // Create or update the team document automatically.
+    // Update the existing Team document.
     batch.set(
       teamRef,
       {
@@ -86,11 +95,41 @@ Future<void> _saveMembers(
       SetOptions(merge: true),
     );
 
+    // Update developerIds in every project assigned to this leader.
+    for (final project in projectSnapshot.docs) {
+      final projectData = project.data();
+      final existingIds = projectData['developerIds'];
+
+      final Set<String> updatedDeveloperIds = {};
+
+      // Preserve existing developer IDs if stored as a list.
+      if (existingIds is List) {
+        updatedDeveloperIds.addAll(
+          existingIds.map((id) => id.toString()),
+        );
+      }
+      // Support old project documents where developerIds is a string.
+      else if (existingIds is String &&
+          existingIds.isNotEmpty) {
+        updatedDeveloperIds.add(existingIds);
+      }
+
+      // Add newly selected developers without duplicates.
+      updatedDeveloperIds.addAll(_selectedIds);
+
+      batch.update(project.reference, {
+        'developerIds': updatedDeveloperIds.toList(),
+      });
+    }
+
     await batch.commit();
 
     if (!mounted) return;
 
-    _showMessage('Team members saved successfully.');
+    _showMessage(
+      'Team members saved and project teams updated successfully.',
+    );
+
     widget.onSaved?.call();
   } catch (e) {
     if (!mounted) return;
@@ -101,6 +140,10 @@ Future<void> _saveMembers(
     }
   }
 }
+
+
+
+
 
 
   void _showMessage(String message) {
