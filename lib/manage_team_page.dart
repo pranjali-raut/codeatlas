@@ -1,4 +1,3 @@
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -17,8 +16,25 @@ class _ManageTeamPageState extends State<ManageTeamPage> {
   final TextEditingController _searchController = TextEditingController();
 
   final Set<String> _selectedIds = {};
+
   String _search = '';
   bool _saving = false;
+  bool _initialized = false;
+
+  late final Stream<QuerySnapshot<Map<String, dynamic>>> _usersStream;
+  late final Stream<DocumentSnapshot<Map<String, dynamic>>> _teamStream;
+
+  @override
+  void initState() {
+    super.initState();
+
+    final leader = FirebaseAuth.instance.currentUser;
+    if (leader != null) {
+      // Cache streams so typing in the search field does not restart them.
+      _usersStream = _db.collection('users').snapshots();
+      _teamStream = _db.collection('teams').doc(leader.uid).snapshots();
+    }
+  }
 
   @override
   void dispose() {
@@ -26,88 +42,227 @@ class _ManageTeamPageState extends State<ManageTeamPage> {
     super.dispose();
   }
 
+  Future<void> _saveMembers(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> developers,
+  ) async {
+    final leader = FirebaseAuth.instance.currentUser;
 
-Future<void> _saveMembers(
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> developers,
-) async {
-  final leader = FirebaseAuth.instance.currentUser;
+    if (leader == null) {
+      _showMessage('Please log in again.');
+      return;
+    }
 
-  if (leader == null) {
-    _showMessage('Please log in again.');
-    return;
-  }
+    if (_selectedIds.isEmpty) {
+      _showMessage('Select at least one developer.');
+      return;
+    }
 
-  if (_selectedIds.isEmpty) {
-    _showMessage('Select at least one developer.');
-    return;
-  }
+    setState(() => _saving = true);
 
-  setState(() => _saving = true);
+    try {
+      final teamRef = _db.collection('teams').doc(leader.uid);
 
-  try {
-    final teamRef = _db.collection('teams').doc(leader.uid);
+      // Read the previous team membership before changing it.
+      final previousTeamSnapshot = await teamRef.get();
+      final previousRaw = previousTeamSnapshot.data()?['memberIds'];
+      final previousMembers = previousRaw is List
+          ? previousRaw.map((id) => id.toString()).toSet()
+          : <String>{};
 
-    final batch = _db.batch();
+      final removedIds = previousMembers.difference(_selectedIds);
 
-    for (final developer in developers) {
-      final data = developer.data();
-      final currentLeaderId = data['teamLeaderId'] as String?;
+      // Read all projects assigned to this Team Leader.
+      final projectSnapshot = await _db
+          .collection('projects')
+          .where('teamLeaderId', isEqualTo: leader.uid)
+          .get();
 
-      if (_selectedIds.contains(developer.id)) {
-        if (currentLeaderId != null &&
-            currentLeaderId.isNotEmpty &&
-            currentLeaderId != leader.uid) {
+      final developerMap = {
+        for (final doc in developers) doc.id: doc,
+      };
+
+      // Validate every selected account before writing anything.
+      for (final id in _selectedIds) {
+        final developer = developerMap[id];
+
+        if (developer == null) {
           throw Exception(
-            '${data['name'] ?? 'This developer'} belongs to another team.',
+            'A selected developer account was not found. Refresh and try again.',
           );
         }
 
-        batch.update(developer.reference, {
-          'teamLeaderId': leader.uid,
-          'teamId': leader.uid,
-        });
-      } else if (currentLeaderId == leader.uid) {
-        batch.update(developer.reference, {
-          'teamLeaderId': null,
-          'teamId': null,
+        final assignedLeader = developer.data()['teamLeaderId'];
+
+        if (assignedLeader != null &&
+            assignedLeader.toString().isNotEmpty &&
+            assignedLeader != leader.uid) {
+          throw Exception(
+            '${developer.data()['name'] ?? 'Developer'} belongs to another team.',
+          );
+        }
+      }
+
+      // Build writes, then commit in batches of at most 450 operations.
+      final writes = <void Function(WriteBatch)>[];
+
+      for (final id in _selectedIds) {
+        final developer = developerMap[id]!;
+        writes.add((batch) {
+          batch.update(developer.reference, {
+            'teamLeaderId': leader.uid,
+            'teamId': leader.uid,
+          });
         });
       }
-    }
 
-    // Create or update the team document automatically.
-    batch.set(
-      teamRef,
-      {
-        'teamLeaderId': leader.uid,
-        'memberIds': _selectedIds.toList(),
-        'teamName': 'Team ${leader.uid}',
-        'createdAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
+      // Clear team fields for developers removed from this team.
+      for (final developer in developers) {
+        final data = developer.data();
 
-    await batch.commit();
+        if (data['teamLeaderId'] == leader.uid &&
+            !_selectedIds.contains(developer.id)) {
+          writes.add((batch) {
+            batch.update(developer.reference, {
+              'teamLeaderId': null,
+              'teamId': null,
+            });
+          });
+        }
+      }
 
-    if (!mounted) return;
+      // Persist the selected team.
+      writes.add((batch) {
+        batch.set(
+          teamRef,
+          {
+            'teamLeaderId': leader.uid,
+            'memberIds': _selectedIds.toList(),
+            'teamName': 'Team ${leader.uid}',
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      });
 
-    _showMessage('Team members saved successfully.');
-    widget.onSaved?.call();
-  } catch (e) {
-    if (!mounted) return;
-    _showMessage('Could not save team members: $e');
-  } finally {
-    if (mounted) {
-      setState(() => _saving = false);
+      // Add every selected team member to every project under this leader.
+      for (final project in projectSnapshot.docs) {
+        writes.add((batch) {
+          batch.update(project.reference, {
+            'developerIds': FieldValue.arrayUnion(_selectedIds.toList()),
+          });
+        });
+
+        // Remove members removed from the team from these projects.
+        if (removedIds.isNotEmpty) {
+          writes.add((batch) {
+            batch.update(project.reference, {
+              'developerIds': FieldValue.arrayRemove(removedIds.toList()),
+            });
+          });
+        }
+      }
+
+      for (var start = 0; start < writes.length; start += 450) {
+        final batch = _db.batch();
+        final end = (start + 450 < writes.length)
+            ? start + 450
+            : writes.length;
+
+        for (var i = start; i < end; i++) {
+          writes[i](batch);
+        }
+
+        await batch.commit();
+      }
+
+      if (!mounted) return;
+
+      _showMessage(
+        'Team saved and synchronized with all your projects.',
+      );
+      widget.onSaved?.call();
+    } catch (e) {
+      if (!mounted) return;
+      _showMessage('Could not save team: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
     }
   }
-}
-
 
   void _showMessage(String message) {
     if (!mounted) return;
-
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  Widget _buildDeveloperList(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> developers,
+    String leaderId,
+  ) {
+    final filtered = developers.where((doc) {
+      final data = doc.data();
+      final name = (data['name'] ?? '').toString().toLowerCase();
+      final email = (data['email'] ?? '').toString().toLowerCase();
+
+      return name.contains(_search) || email.contains(_search);
+    }).toList();
+
+    if (filtered.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(30),
+        child: Center(child: Text('No matching developers found.')),
+      );
+    }
+
+    return Column(
+      children: filtered.map((developer) {
+        final data = developer.data();
+        final name = (data['name'] ?? 'Unnamed Developer').toString();
+        final email = (data['email'] ?? '').toString();
+        final assignedLeader = data['teamLeaderId'];
+
+        final belongsToOtherTeam = assignedLeader != null &&
+            assignedLeader.toString().isNotEmpty &&
+            assignedLeader != leaderId;
+
+        final selected = _selectedIds.contains(developer.id);
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          child: CheckboxListTile(
+            value: selected,
+            onChanged: _saving || belongsToOtherTeam
+                ? null
+                : (checked) {
+                    setState(() {
+                      if (checked == true) {
+                        _selectedIds.add(developer.id);
+                      } else {
+                        _selectedIds.remove(developer.id);
+                      }
+                    });
+                  },
+            controlAffinity: ListTileControlAffinity.leading,
+            secondary: CircleAvatar(
+              child: Text(
+                name.isNotEmpty ? name[0].toUpperCase() : '?',
+              ),
+            ),
+            title: Text(name),
+            subtitle: Text(
+              belongsToOtherTeam
+                  ? '$email • Assigned to another team'
+                  : email,
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 
@@ -119,217 +274,207 @@ Future<void> _saveMembers(
       return const Center(child: Text('Please log in to manage your team.'));
     }
 
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: _db.collection('users').where('role', isEqualTo: 'Developer').snapshots(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Text('Could not load developers: ${snapshot.error}'),
-            ),
-          );
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: _teamStream,
+      builder: (context, teamSnapshot) {
+        if (teamSnapshot.hasError) {
+          return Center(child: Text('Team error: ${teamSnapshot.error}'));
         }
 
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (teamSnapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final developers = snapshot.data?.docs ?? [];
-
-        // Show developers who are unassigned or already belong to this leader.
-        final available = developers.where((doc) {
-          final data = doc.data();
-          final assignedLeader = data['teamLeaderId'] as String?;
-          return assignedLeader == null ||
-              assignedLeader.isEmpty ||
-              assignedLeader == leader.uid;
-        }).toList();
-
-        // Initialize existing members once, without resetting checkbox
-        // changes every time the stream refreshes.
+        // Restore saved members from teams/{teamLeaderUid}/memberIds.
         if (!_initialized) {
-          _selectedIds.addAll(
-            available.where((doc) =>
-              doc.data()['teamLeaderId'] == leader.uid
-            ).map((doc) => doc.id),
-          );
+          final memberIds = teamSnapshot.data?.data()?['memberIds'];
+          if (memberIds is List) {
+            _selectedIds.addAll(
+              memberIds.map((id) => id.toString()),
+            );
+          }
           _initialized = true;
         }
 
-        final filtered = available.where((doc) {
-          final data = doc.data();
-          final name = (data['name'] ?? '').toString().toLowerCase();
-          final email = (data['email'] ?? '').toString().toLowerCase();
-          return name.contains(_search) || email.contains(_search);
-        }).toList();
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: _usersStream,
+          builder: (context, userSnapshot) {
+            if (userSnapshot.hasError) {
+              return Center(
+                child: Text('Could not load users: ${userSnapshot.error}'),
+              );
+            }
 
-        return LayoutBuilder(
-          builder: (context, constraints) {
-            final compact = constraints.maxWidth < 600;
+            if (userSnapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-            return SingleChildScrollView(
-              padding: EdgeInsets.all(compact ? 14 : 26),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 1100),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Manage Team',
-                        style: TextStyle(
-                          fontSize: 25,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Select developers to add to your team.',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                      const SizedBox(height: 20),
+            // Load all user documents, then filter Developer role
+            // without depending on capitalization.
+            final developers = (userSnapshot.data?.docs ?? [])
+                .where((doc) {
+              final role = (doc.data()['role'] ?? '')
+                  .toString()
+                  .trim()
+                  .toLowerCase();
+              return role == 'developer';
+            }).toList();
 
-                      TextField(
-                        controller: _searchController,
-                        onChanged: (value) =>
-                            setState(() => _search = value.toLowerCase().trim()),
-                        decoration: InputDecoration(
-                          hintText: 'Search by name or email',
-                          prefixIcon: const Icon(Icons.search),
-                          suffixIcon: IconButton(
-                            icon: const Icon(Icons.clear),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() => _search = '');
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                final compact = constraints.maxWidth < 600;
+
+                final availableIds = developers.where((doc) {
+                  final assigned = doc.data()['teamLeaderId'];
+                  return assigned == null ||
+                      assigned.toString().isEmpty ||
+                      assigned == leader.uid;
+                }).map((doc) => doc.id).toSet();
+
+                final allAvailableSelected = availableIds.isNotEmpty &&
+                    availableIds.every(_selectedIds.contains);
+
+                return SingleChildScrollView(
+                  padding: EdgeInsets.all(compact ? 14 : 26),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 1100),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Manage Team',
+                            style: TextStyle(
+                              fontSize: 25,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Select your team members. Every team member will be assigned to all projects under you.',
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                          const SizedBox(height: 22),
+
+                          TextField(
+                            controller: _searchController,
+                            onChanged: (value) {
+                              setState(() {
+                                _search = value.trim().toLowerCase();
+                              });
                             },
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.groups_outlined, size: 30),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  '${_selectedIds.length} developer(s) selected',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ),
-                              TextButton(
+                            decoration: InputDecoration(
+                              hintText: 'Search developers by name or email',
+                              prefixIcon: const Icon(Icons.search),
+                              suffixIcon: IconButton(
+                                icon: const Icon(Icons.clear),
                                 onPressed: () {
-                                  setState(() {
-                                    if (_selectedIds.length == available.length) {
-                                      _selectedIds.clear();
-                                    } else {
-                                      _selectedIds
-                                        ..clear()
-                                        ..addAll(available.map((doc) => doc.id));
-                                    }
-                                  });
+                                  _searchController.clear();
+                                  setState(() => _search = '');
                                 },
-                                child: Text(
-                                  _selectedIds.length == available.length
-                                      ? 'Clear all'
-                                      : 'Select all',
-                                ),
                               ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-
-                      if (filtered.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.all(28),
-                          child: Center(
-                            child: Text('No available developers found.'),
-                          ),
-                        )
-                      else
-                        ...filtered.map((developer) {
-                          final data = developer.data();
-                          final name = (data['name'] ?? 'Unnamed Developer')
-                              .toString();
-                          final email = (data['email'] ?? '').toString();
-                          final selected = _selectedIds.contains(developer.id);
-
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            child: CheckboxListTile(
-                              value: selected,
-                              onChanged: (checked) {
-                                setState(() {
-                                  if (checked == true) {
-                                    _selectedIds.add(developer.id);
-                                  } else {
-                                    _selectedIds.remove(developer.id);
-                                  }
-                                });
-                              },
-                              controlAffinity: ListTileControlAffinity.leading,
-                              secondary: CircleAvatar(
-                                child: Text(
-                                  name.isNotEmpty ? name[0].toUpperCase() : '?',
-                                ),
-                              ),
-                              title: Text(
-                                name,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              subtitle: Text(
-                                email,
-                                overflow: TextOverflow.ellipsis,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
                               ),
                             ),
-                          );
-                        }),
+                          ),
+                          const SizedBox(height: 16),
 
-                      const SizedBox(height: 20),
-                      SizedBox(
-                        width: compact ? double.infinity : 240,
-                        child: FilledButton.icon(
-                          onPressed: _saving
-                              ? null
-                              : () => _saveMembers(available),
-                          icon: _saving
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
+                          Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.groups_outlined, size: 28),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(
+                                      '${_selectedIds.length} selected / ${developers.length} developers',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
                                   ),
-                                )
-                              : const Icon(Icons.save_outlined),
-                          label: Text(
-                            _saving ? 'Saving...' : 'Save & View Team Members',
+                                  TextButton(
+                                    onPressed: _saving
+                                        ? null
+                                        : () {
+                                            setState(() {
+                                              if (allAvailableSelected) {
+                                                _selectedIds.removeAll(
+                                                  availableIds,
+                                                );
+                                              } else {
+                                                _selectedIds.addAll(
+                                                  availableIds,
+                                                );
+                                              }
+                                            });
+                                          },
+                                    child: Text(
+                                      allAvailableSelected
+                                          ? 'Clear available'
+                                          : 'Select available',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
-                          style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
+                          const SizedBox(height: 10),
+
+                          if (developers.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.all(30),
+                              child: Center(
+                                child: Text(
+                                  'No developer accounts found in the users collection.',
+                                ),
+                              ),
+                            )
+                          else
+                            _buildDeveloperList(developers, leader.uid),
+
+                          const SizedBox(height: 22),
+
+                          SizedBox(
+                            width: compact ? double.infinity : 340,
+                            child: FilledButton.icon(
+                              onPressed: _saving || _selectedIds.isEmpty
+                                  ? null
+                                  : () => _saveMembers(developers),
+                              icon: _saving
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.save_outlined),
+                              label: Text(
+                                _saving
+                                    ? 'Saving...'
+                                    : 'Save Team & Assign All Projects',
+                              ),
+                              style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 16,
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
+                          const SizedBox(height: 20),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
             );
           },
         );
       },
     );
   }
-
-  bool _initialized = false;
 }

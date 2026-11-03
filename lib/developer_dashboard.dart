@@ -16,7 +16,7 @@ class DeveloperDashboard extends StatefulWidget {
 }
 
 class _DeveloperDashboardState extends State<DeveloperDashboard> {
-  String selectedPage = 'Progress';
+  String selectedPage = 'Summary';
   bool projectExpanded = true;
   bool tasksExpanded = true;
   bool gitExpanded = true;
@@ -326,10 +326,12 @@ class _DeveloperDashboardState extends State<DeveloperDashboard> {
       ? const ChatbotScreen()
       : selectedPage == 'Files'
           ? const DeveloperAssignedProjectsScreen()
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(26),
-              child: DeveloperPageContent(page: selectedPage),
-            ),
+          : selectedPage == 'Summary'
+              ? const DeveloperProjectSummaryScreen()
+              : SingleChildScrollView(
+                  padding: const EdgeInsets.all(26),
+                  child: DeveloperPageContent(page: selectedPage),
+                ),
 ),
                 ],
               ),
@@ -344,6 +346,194 @@ class _DeveloperDashboardState extends State<DeveloperDashboard> {
 
 
 
+
+
+// Displays every project assigned to the currently logged-in developer.
+// developerIds is an ARRAY in Firestore, so the query must use arrayContains.
+class DeveloperProjectSummaryScreen extends StatelessWidget {
+  const DeveloperProjectSummaryScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      return const Center(child: Text('Please log in to view your projects.'));
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('projects')
+          .where('developerIds', arrayContains: user.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Text('Error loading project summaries: ${snapshot.error}'),
+          );
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final projects = snapshot.data?.docs ?? [];
+
+        if (projects.isEmpty) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Text(
+                'No projects are assigned to you yet.',
+                style: TextStyle(
+                  color: devMuted,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(24),
+          itemCount: projects.length,
+          itemBuilder: (context, index) {
+            final project = projects[index];
+            final data = project.data();
+
+            final name = (data['name'] ?? 'Unnamed Project').toString();
+            final description =
+                (data['description'] ?? 'No description available').toString();
+            final status = (data['status'] ?? 'Not specified').toString();
+            final deadline = (data['deadline'] ?? '').toString();
+            final repositoryUrl =
+                (data['repositoryUrl'] ?? '').toString();
+
+            return Card(
+              elevation: 0,
+              margin: const EdgeInsets.only(bottom: 16),
+              color: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: const BorderSide(color: devBorder),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(11),
+                          decoration: BoxDecoration(
+                            color: devLilac,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Icon(
+                            Icons.folder_rounded,
+                            color: devText,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            name,
+                            style: const TextStyle(
+                              color: devText,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: devBlue.withOpacity(0.35),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            status,
+                            style: const TextStyle(
+                              color: devText,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      description,
+                      style: const TextStyle(
+                        color: devMuted,
+                        fontSize: 13,
+                        height: 1.5,
+                      ),
+                    ),
+                    if (deadline.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        'Deadline: $deadline',
+                        style: const TextStyle(
+                          color: devText,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                    if (repositoryUrl.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      SelectableText(
+                        'Repository: $repositoryUrl',
+                        style: const TextStyle(
+                          color: devMuted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => ProjectFilesPage(
+                                projectId: project.id,
+                                projectName: name,
+                              ),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.folder_open_rounded),
+                        label: const Text('View Project Files'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: devLilac,
+                          foregroundColor: devText,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}
 
 class DeveloperAssignedProjectsScreen extends StatelessWidget {
   const DeveloperAssignedProjectsScreen({super.key});
@@ -361,7 +551,7 @@ class DeveloperAssignedProjectsScreen extends StatelessWidget {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: FirebaseFirestore.instance
           .collection('projects')
-          .where('developerIds', isEqualTo: user.uid)
+          .where('developerIds', arrayContains: user.uid)
           .snapshots(),
 
       builder: (context, snapshot) {

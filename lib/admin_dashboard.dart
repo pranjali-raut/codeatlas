@@ -136,12 +136,15 @@ Future<String> createProjectInFirestore({
   required String description,
   required String repositoryUrl,
   required String teamLeaderId,
-  required String developerId,
+  required List<String> developerIds,
 }) async {
   final user = FirebaseAuth.instance.currentUser;
 
   if (user == null) {
     throw Exception('Please sign in again.');
+  }
+  if (developerIds.isEmpty) {
+    throw Exception('Select at least one Developer.');
   }
 
   final doc = await FirebaseFirestore.instance
@@ -150,7 +153,7 @@ Future<String> createProjectInFirestore({
     'createdAt': FieldValue.serverTimestamp(),
     'createdBy': user.uid,
     'description': description.trim(),
-    'developerIds': developerId.trim(),
+    'developerIds': developerIds,
     'name': name.trim(),
     'repositoryUrl': repositoryUrl.trim(),
     'status': 'active',
@@ -159,10 +162,6 @@ Future<String> createProjectInFirestore({
 
   return doc.id;
 }
-
-
-
-
 
 
   void navigate(int index) {
@@ -725,7 +724,7 @@ Future<void> _loadProjects() async {
       description,
       repositoryUrl,
       teamLeaderId,
-      developerId,
+      developerIds,
     ) async {
       try {
         final projectId = await createProjectInFirestore(
@@ -733,7 +732,7 @@ Future<void> _loadProjects() async {
           description: description,
           repositoryUrl: repositoryUrl,
           teamLeaderId: teamLeaderId,
-          developerId: developerId,
+          developerIds: developerIds,
         );
 
         if (!mounted) return;
@@ -1116,12 +1115,12 @@ Future<void> _loadProjects() async {
 
 class _CreateProjectForm extends StatefulWidget {
   final Future<void> Function(
-  String name,
-  String description,
-  String repositoryUrl,
-  String teamLeaderId,
-  String developerId,
-) onCreate;
+    String name,
+    String description,
+    String repositoryUrl,
+    String teamLeaderId,
+    List<String> developerIds,
+  ) onCreate;
 
   const _CreateProjectForm({required this.onCreate});
 
@@ -1134,21 +1133,45 @@ class _CreateProjectFormState extends State<_CreateProjectForm> {
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _repositoryController = TextEditingController();
-  final _teamLeaderIdController = TextEditingController();
-  final _developerIdController = TextEditingController();
-  
-  bool _saving = false;  
+
+  String? _selectedTeamLeaderId;
+  String? _selectedDeveloperId;
+  final Set<String> _selectedDeveloperIds = <String>{};
+
+  bool _saving = false;
   List<String> selectedFiles = [];
   bool _pickingFiles = false;
+
+  CollectionReference<Map<String, dynamic>> get _users =>
+      FirebaseFirestore.instance.collection('users');
+
+  String _normaliseRole(dynamic role) => role
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replaceAll('_', ' ')
+      .replaceAll('-', ' ');
+
+  bool _isTeamLeader(Map<String, dynamic> data) {
+    final role = _normaliseRole(data['role']);
+    return role == 'team leader' || role == 'teamleader';
+  }
+
+  bool _isDeveloper(Map<String, dynamic> data) =>
+      _normaliseRole(data['role']) == 'developer';
+
+  String _userLabel(Map<String, dynamic> data) {
+    final name = (data['name'] ?? 'Unnamed user').toString().trim();
+    final email = (data['email'] ?? '').toString().trim();
+    return email.isEmpty ? name : '$name ($email)';
+  }
 
   @override
   void dispose() {
     _nameController.dispose();
     _descriptionController.dispose();
-    super.dispose();
     _repositoryController.dispose();
-    _teamLeaderIdController.dispose();
-    _developerIdController.dispose();
+    super.dispose();
   }
 
 
@@ -1249,40 +1272,164 @@ Future<void> pickFiles() async {
                       ),
 
                      TextFormField(
-                       controller: _repositoryController,
-                       decoration: const InputDecoration(
-                         labelText: 'Repository URL',
-                         hintText: 'https://github.com/organization/repository',
-                       ),
-                     ),
+                        controller: _repositoryController,
+                        keyboardType: TextInputType.url,
+                        decoration: const InputDecoration(
+                          labelText: 'GitHub Repository Link',
+                          hintText: 'https://github.com/organization/repository',
+                          prefixIcon: Icon(Icons.link),
+                        ),
+                        validator: (value) {
+                          final uri = Uri.tryParse((value ?? '').trim());
+                          if (uri == null ||
+                              uri.scheme != 'https' ||
+                              uri.host != 'github.com') {
+                            return 'Enter a valid GitHub repository URL';
+                          }
+                          return null;
+                        },
+                      ),
 
-                     const SizedBox(height: 16),
+                      const SizedBox(height: 20),
+                      const _FieldLabel('Team Leader'),
+                      const SizedBox(height: 8),
+                      StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                        stream: _users.snapshots(),
+                        builder: (context, snapshot) {
+                          if (snapshot.hasError) {
+                            return Text('Could not load Team Leaders: ${snapshot.error}');
+                          }
+                          if (!snapshot.hasData) {
+                            return const LinearProgressIndicator();
+                          }
+                          final leaders = snapshot.data!.docs
+                              .where((doc) => _isTeamLeader(doc.data()))
+                              .toList();
+                          if (leaders.isEmpty) {
+                            return const Text('No Team Leader accounts found in users.');
+                          }
 
-                     TextFormField(
-                       controller: _teamLeaderIdController,
-                       decoration: const InputDecoration(
-                         labelText: 'Team Leader Firebase UID',
-                       ),
-                       validator: (value) =>
-                           value == null || value.trim().isEmpty
-                               ? 'Enter the Team Leader UID'
-                               : null,
-                     ),
+                          final leaderIds = leaders.map((doc) => doc.id).toSet();
+                          return DropdownButtonFormField<String>(
+                            value: leaderIds.contains(_selectedTeamLeaderId)
+                                ? _selectedTeamLeaderId
+                                : null,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Select Team Leader',
+                              prefixIcon: Icon(Icons.supervisor_account_outlined),
+                              border: OutlineInputBorder(),
+                            ),
+                            hint: const Text('Choose a Team Leader'),
+                            items: leaders.map((doc) {
+                              return DropdownMenuItem<String>(
+                                value: doc.id,
+                                child: Text(
+                                  _userLabel(doc.data()),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: _saving
+                                ? null
+                                : (value) => setState(() => _selectedTeamLeaderId = value),
+                          );
+                        },
+                      ),
 
-                     const SizedBox(height: 16),
+                      const SizedBox(height: 20),
+                      const _FieldLabel('Developers'),
+                      const SizedBox(height: 8),
+                      StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                        stream: _users.snapshots(),
+                        builder: (context, snapshot) {
+                          if (snapshot.hasError) {
+                            return Text('Could not load Developers: ${snapshot.error}');
+                          }
+                          if (!snapshot.hasData) {
+                            return const LinearProgressIndicator();
+                          }
+                          final developers = snapshot.data!.docs
+                              .where((doc) => _isDeveloper(doc.data()))
+                              .toList();
+                          if (developers.isEmpty) {
+                            return const Text('No Developer accounts found in users.');
+                          }
 
-                     TextFormField(
-                       controller: _developerIdController,
-                       decoration: const InputDecoration(
-                         labelText: 'Developer Firebase UID',
-                       ),
-                       validator: (value) =>
-                           value == null || value.trim().isEmpty
-                               ? 'Enter the Developer UID'
-                               : null,
-                     ),
+                          final allDeveloperIds =
+                              developers.map((doc) => doc.id).toSet();
+                          final selectedIds = _selectedDeveloperIds
+                              .where(allDeveloperIds.contains)
+                              .toSet();
 
-                     
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              DropdownButtonFormField<String>(
+                                value: developers.any(
+                                        (doc) => doc.id == _selectedDeveloperId)
+                                    ? _selectedDeveloperId
+                                    : null,
+                                isExpanded: true,
+                                decoration: const InputDecoration(
+                                  labelText: 'Select Developer',
+                                  prefixIcon: Icon(Icons.code_rounded),
+                                  border: OutlineInputBorder(),
+                                ),
+                                hint: const Text('Choose a Developer to add'),
+                                items: developers.map((doc) {
+                                  final selected = selectedIds.contains(doc.id);
+                                  return DropdownMenuItem<String>(
+                                    value: doc.id,
+                                    enabled: !selected,
+                                    child: Text(
+                                      '${_userLabel(doc.data())}${selected ? ' (Selected)' : ''}',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  );
+                                }).toList(),
+                                onChanged: _saving
+                                    ? null
+                                    : (value) {
+                                        if (value == null) return;
+                                        setState(() {
+                                          _selectedDeveloperIds.add(value);
+                                          _selectedDeveloperId = null;
+                                        });
+                                      },
+                              ),
+                              const SizedBox(height: 10),
+                              if (selectedIds.isEmpty)
+                                const Text(
+                                  'No Developers selected yet.',
+                                  style: TextStyle(color: muted, fontSize: 12),
+                                )
+                              else
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: developers
+                                      .where((doc) => selectedIds.contains(doc.id))
+                                      .map((doc) => InputChip(
+                                            label: Text(_userLabel(doc.data())),
+                                            onDeleted: _saving
+                                                ? null
+                                                : () => setState(() {
+                                                      _selectedDeveloperIds.remove(doc.id);
+                                                    }),
+                                          ))
+                                      .toList(),
+                                ),
+                              const SizedBox(height: 5),
+                              Text(
+                                '${selectedIds.length} Developer(s) selected',
+                                style: const TextStyle(color: muted, fontSize: 11),
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+
                       const SizedBox(height: 27),
                       Row(
                         children: [
@@ -1292,7 +1439,13 @@ Future<void> pickFiles() async {
                                 _formKey.currentState?.reset();
                                 _nameController.clear();
                                 _descriptionController.clear();
-                                setState(() => selectedFiles.clear());
+                                _repositoryController.clear();
+                                setState(() {
+                                  selectedFiles.clear();
+                                  _selectedTeamLeaderId = null;
+                                  _selectedDeveloperId = null;
+                                  _selectedDeveloperIds.clear();
+                                });
                               },
                               style: OutlinedButton.styleFrom(
                                 padding: const EdgeInsets.symmetric(
@@ -1312,6 +1465,18 @@ Future<void> pickFiles() async {
                                   ? null
                                   : () async {
                                       if (!_formKey.currentState!.validate()) return;
+                                      if (_selectedTeamLeaderId == null) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Please select a Team Leader.')),
+                                        );
+                                        return;
+                                      }
+                                      if (_selectedDeveloperIds.isEmpty) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Please select at least one Developer.')),
+                                        );
+                                        return;
+                                      }
 
                                       setState(() => _saving = true);
 
@@ -1320,8 +1485,8 @@ Future<void> pickFiles() async {
                                           _nameController.text.trim(),
                                           _descriptionController.text.trim(),
                                           _repositoryController.text.trim(),
-                                          _teamLeaderIdController.text.trim(),
-                                          _developerIdController.text.trim(),
+                                          _selectedTeamLeaderId!,
+                                          _selectedDeveloperIds.toList(),
                                         );
                                       } finally {
                                         if (mounted) {

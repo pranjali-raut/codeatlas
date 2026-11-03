@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 // 1) Create Project Screen
 class CreateProjectScreen extends StatefulWidget {
@@ -12,111 +13,395 @@ class CreateProjectScreen extends StatefulWidget {
 class _CreateProjectScreenState extends State<CreateProjectScreen> {
   final _nameController = TextEditingController();
   final _descController = TextEditingController();
-  String? _selectedFileName;
+  final _repositoryController = TextEditingController();
+
+  String? _selectedTeamLeaderId;
+  String? _selectedDeveloperId;
+  final Set<String> _selectedDeveloperIds = <String>{};
+  bool _saving = false;
+
+  CollectionReference<Map<String, dynamic>> get _users =>
+      FirebaseFirestore.instance.collection('users');
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _descController.dispose();
+    _repositoryController.dispose();
+    super.dispose();
+  }
+
+  String _normaliseRole(dynamic value) =>
+      value.toString().trim().toLowerCase().replaceAll('_', ' ').replaceAll('-', ' ');
+
+  bool _isTeamLeader(Map<String, dynamic> data) {
+    final role = _normaliseRole(data['role']);
+    return role == 'team leader' || role == 'teamleader';
+  }
+
+  bool _isDeveloper(Map<String, dynamic> data) =>
+      _normaliseRole(data['role']) == 'developer';
+
+  String _displayUser(Map<String, dynamic> data) {
+    final name = (data['name'] ?? 'Unnamed user').toString().trim();
+    final email = (data['email'] ?? '').toString().trim();
+    return email.isEmpty ? name : '$name ($email)';
+  }
+
+  Future<void> _createProject() async {
+    final name = _nameController.text.trim();
+    final description = _descController.text.trim();
+    final repositoryUrl = _repositoryController.text.trim();
+
+    if (name.isEmpty) {
+      _showMessage('Enter a project name.');
+      return;
+    }
+    if (description.isEmpty) {
+      _showMessage('Enter a project description.');
+      return;
+    }
+    if (repositoryUrl.isEmpty) {
+      _showMessage('Enter the GitHub repository link.');
+      return;
+    }
+    final parsedUrl = Uri.tryParse(repositoryUrl);
+    if (parsedUrl == null ||
+        parsedUrl.scheme != 'https' ||
+        parsedUrl.host != 'github.com') {
+      _showMessage('Enter a valid GitHub URL starting with https://github.com/');
+      return;
+    }
+    if (_selectedTeamLeaderId == null) {
+      _showMessage('Select a Team Leader.');
+      return;
+    }
+    if (_selectedDeveloperIds.isEmpty) {
+      _showMessage('Select at least one Developer.');
+      return;
+    }
+
+    setState(() => _saving = true);
+
+    try {
+      final admin = FirebaseAuth.instance.currentUser;
+      if (admin == null) {
+        throw Exception('Admin session not found. Please log in again.');
+      }
+
+      // Read the selected user records so IDs and display details are saved.
+      final leaderSnapshot =
+          await _users.doc(_selectedTeamLeaderId).get();
+      if (!leaderSnapshot.exists) {
+        throw Exception('The selected Team Leader no longer exists.');
+      }
+      final leaderData = leaderSnapshot.data()!;
+      if (!_isTeamLeader(leaderData)) {
+        throw Exception('The selected account is not a Team Leader.');
+      }
+
+      final developerSnapshots = await Future.wait(
+        _selectedDeveloperIds.map((id) => _users.doc(id).get()),
+      );
+
+      final developerNames = <String>[];
+      final developerDetails = <Map<String, String>>[];
+      for (final doc in developerSnapshots) {
+        if (!doc.exists) continue;
+        final data = doc.data()!;
+        if (!_isDeveloper(data)) continue;
+
+        developerNames.add((data['name'] ?? 'Unnamed Developer').toString());
+        developerDetails.add({
+          'uid': doc.id,
+          'name': (data['name'] ?? 'Unnamed Developer').toString(),
+          'email': (data['email'] ?? '').toString(),
+        });
+      }
+
+      if (developerDetails.isEmpty) {
+        throw Exception('No valid Developer accounts were selected.');
+      }
+
+      await FirebaseFirestore.instance.collection('projects').add({
+        'name': name,
+        'description': description,
+        'repositoryUrl': repositoryUrl,
+        'deadline': '',
+        'createdBy': admin.uid,
+        'createdAt': FieldValue.serverTimestamp(),
+        'status': 'active',
+        'teamLeaderId': _selectedTeamLeaderId,
+        'teamLeaderName':
+            (leaderData['name'] ?? 'Unnamed Team Leader').toString(),
+        'teamLeaderEmail': (leaderData['email'] ?? '').toString(),
+        'developerIds': developerDetails.map((item) => item['uid']).toList(),
+        'developerNames': developerNames,
+        'developerDetails': developerDetails,
+      });
+
+      if (!mounted) return;
+      _nameController.clear();
+      _descController.clear();
+      _repositoryController.clear();
+
+      setState(() {
+        _selectedTeamLeaderId = null;
+        _selectedDeveloperId = null;
+        _selectedDeveloperIds.clear();
+      });
+
+      _showMessage('Project created and selected Developers assigned successfully.');
+    } catch (e) {
+      if (!mounted) return;
+      _showMessage('Could not create project: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  InputDecoration _fieldDecoration(String label, {String? hint, IconData? icon}) {
+    return InputDecoration(
+      labelText: label,
+      hintText: hint,
+      prefixIcon: icon == null ? null : Icon(icon),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+      filled: true,
+      fillColor: const Color(0xFFbbd0ff).withOpacity(0.1),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return SingleChildScrollView(
       child: Card(
         elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         color: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: Padding(
-          padding: const EdgeInsets.all(32.0),
+          padding: const EdgeInsets.all(32),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                "Initialize Project Metadata",
+                'Initialize Project Metadata',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 6),
               const Text(
-                "Provide project details and upload source documents (README, Architecture PDFs) for Supabase Storage & AI analysis.",
+                'Enter the project details, choose one Team Leader, and select one or more Developers from the dropdown lists.',
                 style: TextStyle(color: Colors.black54, fontSize: 13),
               ),
               const SizedBox(height: 24),
-              
-              // Project Name Field
+
               TextField(
                 controller: _nameController,
-                decoration: InputDecoration(
-                  labelText: 'Project Name',
-                  hintText: 'e.g., CodeAtlas / InitifyApp',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                  filled: true,
-                  fillColor: const Color(0xFFbbd0ff).withOpacity(0.1),
+                decoration: _fieldDecoration(
+                  'Project Name',
+                  hint: 'e.g. CodeAtlas',
                 ),
               ),
               const SizedBox(height: 20),
-              
-              // Description Field
+
               TextField(
                 controller: _descController,
                 maxLines: 4,
-                decoration: InputDecoration(
-                  labelText: 'Project Description',
-                  hintText: 'Describe modules, technologies, and system expectations...',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                  filled: true,
-                  fillColor: const Color(0xFFbbd0ff).withOpacity(0.1),
+                decoration: _fieldDecoration(
+                  'Project Description',
+                  hint: 'Describe project modules, technologies, and expectations...',
                 ),
               ),
               const SizedBox(height: 20),
 
-              // File Upload Section (Supabase Storage Target)
-              const Text("Project Files / Documentation", style: TextStyle(fontWeight: FontWeight.w600)),
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  border: Border.all(color: const Color(0xFFc8b6ff), width: 2),
-                  borderRadius: BorderRadius.circular(12),
-                  color: const Color(0xFFffd6ff).withOpacity(0.2),
-                ),
-                child: Column(
-                  children: [
-                    const Icon(Icons.cloud_upload_outlined, size: 48, color: Colors.deepPurple),
-                    const SizedBox(height: 8),
-                    Text(
-                      _selectedFileName ?? "Drag & drop README, API docs, or PDFs here",
-                      style: const TextStyle(fontWeight: FontWeight.w500),
-                    ),
-                    const SizedBox(height: 12),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFb8c0ff),
-                        foregroundColor: Colors.black87,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          _selectedFileName = "README_v2.md & architecture_spec.pdf selected";
-                        });
-                      },
-                      child: const Text("Browse Supabase Buckets"),
-                    ),
-                  ],
+              TextField(
+                controller: _repositoryController,
+                keyboardType: TextInputType.url,
+                decoration: _fieldDecoration(
+                  'GitHub Repository Link',
+                  hint: 'https://github.com/organization/repository',
+                  icon: Icons.link,
                 ),
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 24),
 
-              // Submit Button
+              const Text(
+                'Assign Team Leader',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+
+              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: _users.snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return Text('Could not load Team Leaders: ${snapshot.error}');
+                  }
+                  if (!snapshot.hasData) {
+                    return const LinearProgressIndicator();
+                  }
+
+                  final leaders = snapshot.data!.docs
+                      .where((doc) => _isTeamLeader(doc.data()))
+                      .toList();
+
+                  if (leaders.isEmpty) {
+                    return const Text('No Team Leader accounts found.');
+                  }
+
+                  final leaderIds = leaders.map((doc) => doc.id).toSet();
+                  return DropdownButtonFormField<String>(
+                    value: leaderIds.contains(_selectedTeamLeaderId)
+                        ? _selectedTeamLeaderId
+                        : null,
+                    isExpanded: true,
+                    decoration: _fieldDecoration('Select Team Leader'),
+                    hint: const Text('Choose Team Leader'),
+                    items: leaders.map((doc) {
+                      return DropdownMenuItem<String>(
+                        value: doc.id,
+                        child: Text(
+                          _displayUser(doc.data()),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: _saving
+                        ? null
+                        : (value) => setState(() => _selectedTeamLeaderId = value),
+                  );
+                },
+              ),
+              const SizedBox(height: 24),
+
+              const Text(
+                'Assign Developers',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 8),
+
+              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: _users.snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return Text('Could not load Developers: ${snapshot.error}');
+                  }
+                  if (!snapshot.hasData) {
+                    return const LinearProgressIndicator();
+                  }
+
+                  final developers = snapshot.data!.docs
+                      .where((doc) => _isDeveloper(doc.data()))
+                      .toList();
+
+                  if (developers.isEmpty) {
+                    return const Text('No Developer accounts found.');
+                  }
+
+                  final availableIds = developers.map((doc) => doc.id).toSet();
+                  final selectedIds = _selectedDeveloperIds
+                      .where(availableIds.contains)
+                      .toSet();
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      DropdownButtonFormField<String>(
+                        value: developers.any((doc) => doc.id == _selectedDeveloperId)
+                            ? _selectedDeveloperId
+                            : null,
+                        isExpanded: true,
+                        decoration: _fieldDecoration('Select Developer'),
+                        hint: const Text('Choose a Developer to add'),
+                        items: developers.map((doc) {
+                          final alreadySelected = selectedIds.contains(doc.id);
+                          return DropdownMenuItem<String>(
+                            value: doc.id,
+                            enabled: !alreadySelected,
+                            child: Text(
+                              '${_displayUser(doc.data())}${alreadySelected ? ' (Selected)' : ''}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: _saving
+                            ? null
+                            : (value) {
+                                if (value == null) return;
+                                setState(() {
+                                  _selectedDeveloperIds.add(value);
+                                  _selectedDeveloperId = null;
+                                });
+                              },
+                      ),
+                      const SizedBox(height: 12),
+                      if (selectedIds.isEmpty)
+                        const Text(
+                          'No Developers selected yet.',
+                          style: TextStyle(color: Colors.grey, fontSize: 13),
+                        )
+                      else
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: developers
+                              .where((doc) => selectedIds.contains(doc.id))
+                              .map((doc) {
+                            final data = doc.data();
+                            return InputChip(
+                              avatar: const CircleAvatar(
+                                backgroundColor: Color(0xFFE7C6FF),
+                                child: Icon(Icons.person_outline, size: 17),
+                              ),
+                              label: Text(_displayUser(data)),
+                              onDeleted: _saving
+                                  ? null
+                                  : () => setState(
+                                        () => _selectedDeveloperIds.remove(doc.id),
+                                      ),
+                            );
+                          }).toList(),
+                        ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '${selectedIds.length} Developer(s) selected',
+                        style: const TextStyle(color: Colors.black54, fontSize: 12),
+                      ),
+                    ],
+                  );
+                },
+              ),
+              const SizedBox(height: 28),
+
               SizedBox(
                 width: double.infinity,
-                height: 50,
-                child: ElevatedButton(
+                height: 48,
+                child: ElevatedButton.icon(
+                  onPressed: _saving ? null : _createProject,
+                  icon: _saving
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.add),
+                  label: Text(_saving ? 'Creating Project...' : 'Create Project'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFc8b6ff),
-                    foregroundColor: Colors.black,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    backgroundColor: const Color(0xFF7653B6),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
-                  onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("Project saved to Firestore & files uploaded to Supabase!")),
-                    );
-                  },
-                  child: const Text("Generate AI Onboarding Experience", style: TextStyle(fontWeight: FontWeight.bold)),
                 ),
               ),
             ],
@@ -127,7 +412,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
   }
 }
 
-// 2a) Progress Screen
+// 2) Existing Admin screens continue below.
 class ProgressScreen extends StatelessWidget {
   const ProgressScreen({Key? key}) : super(key: key);
 
